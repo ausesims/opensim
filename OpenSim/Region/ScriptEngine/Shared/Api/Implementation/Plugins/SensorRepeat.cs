@@ -160,7 +160,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Plugins
             ts.arc = arc;
             ts.host = host;
 
-            ts.next = DateTime.Now.ToUniversalTime().AddSeconds(ts.interval);
+            ts.next = DateTime.UtcNow.AddSeconds(ts.interval);
 
             AddSenseRepeater(ts);
         }
@@ -196,14 +196,20 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Plugins
         public void CheckSenseRepeaterEvents()
         {
             // Go through all timers
-            foreach (SensorInfo ts in SenseRepeaters)
+
+            List<SensorInfo> curSensors;
+            lock(SenseRepeatListLock)
+                curSensors = SenseRepeaters;
+
+            DateTime now = DateTime.UtcNow;
+            foreach (SensorInfo ts in curSensors)
             {
                 // Time has passed?
-                if (ts.next.ToUniversalTime() < DateTime.Now.ToUniversalTime())
+                if (ts.next < now)
                 {
                     SensorSweep(ts);
                     // set next interval
-                    ts.next = DateTime.Now.ToUniversalTime().AddSeconds(ts.interval);
+                    ts.next = now.AddSeconds(ts.interval);
                 }
             }
         }
@@ -351,7 +357,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Plugins
                 // your head but the sensor will stay with your (global)
                 // avatar rotation and position.
                 // Position of a sensor in a child prim attached to an avatar
-                // will be still wrong. 
+                // will be still wrong.
                 ScenePresence avatar = m_CmdManager.m_ScriptEngine.World.GetScenePresence(SensePoint.ParentGroup.AttachedAvatar);
 
                 // Don't proceed if the avatar for this attachment has since been removed from the scene.
@@ -473,7 +479,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Plugins
 
             SceneObjectPart SensePoint = ts.host;
             Vector3 fromRegionPos = SensePoint.GetWorldPosition();
-            
+
             Quaternion q = SensePoint.GetWorldRotation();
             if (SensePoint.ParentGroup.IsAttachment)
             {
@@ -486,7 +492,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Plugins
                 // your head but the sensor will stay with your (global)
                 // avatar rotation and position.
                 // Position of a sensor in a child prim attached to an avatar
-                // will be still wrong. 
+                // will be still wrong.
                 ScenePresence avatar = m_CmdManager.m_ScriptEngine.World.GetScenePresence(SensePoint.ParentGroup.AttachedAvatar);
 
                 // Don't proceed if the avatar for this attachment has since been removed from the scene.
@@ -502,7 +508,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Plugins
             bool attached = (SensePoint.ParentGroup.AttachmentPoint != 0);
             Vector3 toRegionPos;
             double dis;
-            
+
             Action<ScenePresence> senseEntity = new Action<ScenePresence>(presence =>
             {
 //                m_log.DebugFormat(
@@ -540,22 +546,22 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Plugins
                     }
                 }
 
-                if (presence.IsDeleted || presence.IsChildAgent || presence.GodLevel > 0.0)
+                if (presence.IsDeleted || presence.IsChildAgent || presence.IsViewerUIGod)
                     return;
-                
+
                 // if the object the script is in is attached and the avatar is the owner
                 // then this one is not wanted
                 if (attached && presence.UUID == SensePoint.OwnerID)
                     return;
 
                 toRegionPos = presence.AbsolutePosition;
-                dis = Util.GetDistanceTo(toRegionPos, fromRegionPos);
+                dis = Vector3.Distance(toRegionPos, fromRegionPos);
                 if (presence.IsSatOnObject && presence.ParentPart != null &&
                     presence.ParentPart.ParentGroup != null &&
                     presence.ParentPart.ParentGroup.RootPart != null)
                 {
                     Vector3 rpos = presence.ParentPart.ParentGroup.RootPart.AbsolutePosition;
-                    double dis2 = Util.GetDistanceTo(rpos, fromRegionPos);
+                    double dis2 = Vector3.Distance(rpos, fromRegionPos);
                     if (dis > dis2)
                         dis = dis2;
                 }
@@ -700,7 +706,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Plugins
                     DateTime.Now.ToUniversalTime().AddSeconds(ts.interval);
 
                 AddSenseRepeater(ts);
-                
+
                 idx += 6;
             }
         }
@@ -716,6 +722,6 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Plugins
             }
 
             return retList;
-        }           
+        }
     }
 }

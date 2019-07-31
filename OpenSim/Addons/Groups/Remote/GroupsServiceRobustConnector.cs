@@ -91,9 +91,10 @@ namespace OpenSim.Groups
         protected override byte[] ProcessRequest(string path, Stream requestData,
                 IOSHttpRequest httpRequest, IOSHttpResponse httpResponse)
         {
-            StreamReader sr = new StreamReader(requestData);
-            string body = sr.ReadToEnd();
-            sr.Close();
+            string body;
+            using(StreamReader sr = new StreamReader(requestData))
+                body = sr.ReadToEnd();
+
             body = body.Trim();
 
             //m_log.DebugFormat("[XXX]: query String: {0}", body);
@@ -286,7 +287,7 @@ namespace OpenSim.Groups
                 string requestingAgentID = request["RequestingAgentID"].ToString();
 
                 if (!m_GroupsService.RemoveAgentFromGroup(requestingAgentID, agentID, groupID))
-                    NullResult(result, string.Format("Insufficient permissions.", agentID));
+                    NullResult(result, string.Format("Insufficient permissions. {0}", agentID));
                 else
                     result["RESULT"] = "true";
             }
@@ -393,7 +394,7 @@ namespace OpenSim.Groups
 
             if (!request.ContainsKey("RequestingAgentID") || !request.ContainsKey("GroupID") || !request.ContainsKey("RoleID") ||
                 !request.ContainsKey("Name") || !request.ContainsKey("Description") || !request.ContainsKey("Title") ||
-                !request.ContainsKey("Powers") || !request.ContainsKey("OP")) 
+                !request.ContainsKey("Powers") || !request.ContainsKey("OP"))
                 NullResult(result, "Bad network data");
 
             else
@@ -519,11 +520,11 @@ namespace OpenSim.Groups
 
                 bool success = false;
                 if (op == "ADD")
-                    success = m_GroupsService.AddAgentToGroupRole(request["RequestingAgentID"].ToString(), request["AgentID"].ToString(), 
+                    success = m_GroupsService.AddAgentToGroupRole(request["RequestingAgentID"].ToString(), request["AgentID"].ToString(),
                         new UUID(request["GroupID"].ToString()), new UUID(request["RoleID"].ToString()));
 
                 else if (op == "DELETE")
-                    success = m_GroupsService.RemoveAgentFromGroupRole(request["RequestingAgentID"].ToString(), request["AgentID"].ToString(), 
+                    success = m_GroupsService.RemoveAgentFromGroupRole(request["RequestingAgentID"].ToString(), request["AgentID"].ToString(),
                         new UUID(request["GroupID"].ToString()), new UUID(request["RoleID"].ToString()));
 
                 result["RESULT"] = success.ToString();
@@ -647,8 +648,8 @@ namespace OpenSim.Groups
                 string op = request["OP"].ToString();
 
                 if (op == "ADD" && request.ContainsKey("GroupID") && request.ContainsKey("RoleID") && request.ContainsKey("AgentID"))
-                {   
-                    bool success = m_GroupsService.AddAgentToGroupInvite(request["RequestingAgentID"].ToString(), 
+                {
+                    bool success = m_GroupsService.AddAgentToGroupInvite(request["RequestingAgentID"].ToString(),
                         new UUID(request["InviteID"].ToString()), new UUID(request["GroupID"].ToString()),
                         new UUID(request["RoleID"].ToString()), request["AgentID"].ToString());
 
@@ -664,7 +665,7 @@ namespace OpenSim.Groups
                 }
                 else if (op == "GET")
                 {
-                    GroupInviteInfo invite = m_GroupsService.GetAgentToGroupInvite(request["RequestingAgentID"].ToString(), 
+                    GroupInviteInfo invite = m_GroupsService.GetAgentToGroupInvite(request["RequestingAgentID"].ToString(),
                         new UUID(request["InviteID"].ToString()));
 
                     if (invite != null)

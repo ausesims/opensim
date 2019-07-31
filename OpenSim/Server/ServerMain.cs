@@ -30,7 +30,10 @@ using log4net;
 using System.Reflection;
 using System;
 using System.Net;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using System.Collections.Generic;
+using OpenSim.Framework;
 using OpenSim.Framework.Servers;
 using OpenSim.Framework.Servers.HttpServer;
 using OpenSim.Server.Base;
@@ -51,15 +54,41 @@ namespace OpenSim.Server
                 new List<IServiceConnector>();
 
         protected static PluginLoader loader;
+        private static bool m_NoVerifyCertChain = false;
+        private static bool m_NoVerifyCertHostname = false;
+
+        public static bool ValidateServerCertificate(
+            object sender,
+            X509Certificate certificate,
+            X509Chain chain,
+            SslPolicyErrors sslPolicyErrors)
+        {
+            if (m_NoVerifyCertChain)
+                sslPolicyErrors &= ~SslPolicyErrors.RemoteCertificateChainErrors;
+ 
+            if (m_NoVerifyCertHostname)
+                sslPolicyErrors &= ~SslPolicyErrors.RemoteCertificateNameMismatch;
+
+            if (sslPolicyErrors == SslPolicyErrors.None)
+                return true;
+
+            return false;
+        }
 
         public static int Main(string[] args)
         {
-            // Make sure we don't get outbound connections queueing
-            ServicePointManager.DefaultConnectionLimit = 50;
+            Culture.SetCurrentCulture();
+            Culture.SetDefaultCurrentCulture();
+
+            ServicePointManager.DefaultConnectionLimit = 64;
+            ServicePointManager.Expect100Continue = false;
             ServicePointManager.UseNagleAlgorithm = false;
+            ServicePointManager.ServerCertificateValidationCallback = ValidateServerCertificate;
+
+            try { ServicePointManager.DnsRefreshTimeout = 300000; } catch { }
 
             m_Server = new HttpServerBase("R.O.B.U.S.T.", args);
-            
+
             string registryLocation;
 
             IConfig serverConfig = m_Server.Config.Configs["Startup"];
@@ -69,8 +98,12 @@ namespace OpenSim.Server
                 throw new Exception("Configuration error");
             }
 
+            m_NoVerifyCertChain = serverConfig.GetBoolean("NoVerifyCertChain", m_NoVerifyCertChain);
+            m_NoVerifyCertHostname = serverConfig.GetBoolean("NoVerifyCertHostname", m_NoVerifyCertHostname);
+
+
             string connList = serverConfig.GetString("ServiceConnectors", String.Empty);
-            
+
             registryLocation = serverConfig.GetString("RegistryLocation",".");
 
             IConfig servicesConfig = m_Server.Config.Configs["ServiceList"];
@@ -157,6 +190,11 @@ namespace OpenSim.Server
             loader = new PluginLoader(m_Server.Config, registryLocation);
 
             int res = m_Server.Run();
+
+            if(m_Server != null)
+                m_Server.Shutdown();
+
+            Util.StopThreadPool();
 
             Environment.Exit(res);
 

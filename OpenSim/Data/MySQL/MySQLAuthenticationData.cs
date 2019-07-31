@@ -59,6 +59,7 @@ namespace OpenSim.Data.MySQL
                 dbcon.Open();
                 Migration m = new Migration(dbcon, Assembly, "AuthStore");
                 m.Update();
+                dbcon.Close();
             }
         }
 
@@ -76,27 +77,30 @@ namespace OpenSim.Data.MySQL
                 {
                     cmd.Parameters.AddWithValue("?principalID", principalID.ToString());
 
-                    IDataReader result = cmd.ExecuteReader();
-    
-                    if (result.Read())
+                    using(IDataReader result = cmd.ExecuteReader())
                     {
-                        ret.PrincipalID = principalID;
-    
-                        CheckColumnNames(result);
-    
-                        foreach (string s in m_ColumnNames)
+                         if(result.Read())
                         {
-                            if (s == "UUID")
-                                continue;
-    
-                            ret.Data[s] = result[s].ToString();
+                            ret.PrincipalID = principalID;
+
+                            CheckColumnNames(result);
+
+                            foreach(string s in m_ColumnNames)
+                            {
+                                if(s == "UUID")
+                                    continue;
+
+                                ret.Data[s] = result[s].ToString();
+                            }
+
+                            dbcon.Close();
+                            return ret;
                         }
-    
-                        return ret;
-                    }
-                    else
-                    {
-                        return null;
+                        else
+                        {
+                            dbcon.Close();
+                            return null;
+                        }
                     }
                 }
             }
@@ -132,25 +136,25 @@ namespace OpenSim.Data.MySQL
                     if (!first)
                         update += ", ";
                     update += "`" + field + "` = ?"+field;
-    
+
                     first = false;
-    
+
                     cmd.Parameters.AddWithValue("?"+field, data.Data[field]);
                 }
-    
+
                 update += " where UUID = ?principalID";
-    
+
                 cmd.CommandText = update;
                 cmd.Parameters.AddWithValue("?principalID", data.PrincipalID.ToString());
-    
+
                 if (ExecuteNonQuery(cmd) < 1)
                 {
                     string insert = "insert into `" + m_Realm + "` (`UUID`, `" +
                             String.Join("`, `", fields) +
                             "`) values (?principalID, ?" + String.Join(", ?", fields) + ")";
-    
+
                     cmd.CommandText = insert;
-    
+
                     if (ExecuteNonQuery(cmd) < 1)
                         return false;
                 }
@@ -166,7 +170,7 @@ namespace OpenSim.Data.MySQL
             {
                 cmd.Parameters.AddWithValue("?"+item, value);
                 cmd.Parameters.AddWithValue("?UUID", principalID.ToString());
-    
+
                 if (ExecuteNonQuery(cmd) > 0)
                     return true;
             }
@@ -186,7 +190,7 @@ namespace OpenSim.Data.MySQL
                 cmd.Parameters.AddWithValue("?principalID", principalID.ToString());
                 cmd.Parameters.AddWithValue("?token", token);
                 cmd.Parameters.AddWithValue("?lifetime", lifetime.ToString());
-    
+
                 if (ExecuteNonQuery(cmd) > 0)
                     return true;
             }

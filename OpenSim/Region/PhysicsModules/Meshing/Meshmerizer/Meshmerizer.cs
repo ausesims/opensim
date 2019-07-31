@@ -66,7 +66,7 @@ namespace OpenSim.Region.PhysicsModule.Meshing
 
         private bool cacheSculptMaps = true;
         private string decodedSculptMapPath = null;
-        private bool useMeshiesPhysicsMesh = false;
+        private bool useMeshiesPhysicsMesh = true;
 
         private float minSizeForComplexMesh = 0.2f; // prims with all dimensions smaller than this will have a bounding box mesh
 
@@ -247,13 +247,13 @@ namespace OpenSim.Region.PhysicsModule.Meshing
         private void AddSubMesh(OSDMap subMeshData, Vector3 size, List<Coord> coords, List<Face> faces)
         {
     //                                    Console.WriteLine("subMeshMap for {0} - {1}", primName, Util.GetFormattedXml((OSD)subMeshMap));
-    
+
             // As per http://wiki.secondlife.com/wiki/Mesh/Mesh_Asset_Format, some Mesh Level
             // of Detail Blocks (maps) contain just a NoGeometry key to signal there is no
             // geometry for this submesh.
             if (subMeshData.ContainsKey("NoGeometry") && ((OSDBoolean)subMeshData["NoGeometry"]))
                 return;
-    
+
             OpenMetaverse.Vector3 posMax = ((OSDMap)subMeshData["PositionDomain"])["Max"].AsVector3();
             OpenMetaverse.Vector3 posMin = ((OSDMap)subMeshData["PositionDomain"])["Min"].AsVector3();
             ushort faceIndexOffset = (ushort)coords.Count;
@@ -264,15 +264,15 @@ namespace OpenSim.Region.PhysicsModule.Meshing
                 ushort uX = Utils.BytesToUInt16(posBytes, i);
                 ushort uY = Utils.BytesToUInt16(posBytes, i + 2);
                 ushort uZ = Utils.BytesToUInt16(posBytes, i + 4);
-    
+
                 Coord c = new Coord(
                 Utils.UInt16ToFloat(uX, posMin.X, posMax.X) * size.X,
                 Utils.UInt16ToFloat(uY, posMin.Y, posMax.Y) * size.Y,
                 Utils.UInt16ToFloat(uZ, posMin.Z, posMax.Z) * size.Z);
-    
+
                 coords.Add(c);
             }
-    
+
             byte[] triangleBytes = subMeshData["TriangleList"].AsBinary();
             for (int i = 0; i < triangleBytes.Length; i += 6)
             {
@@ -436,9 +436,9 @@ namespace OpenSim.Region.PhysicsModule.Meshing
                             int convexSize = convexBlock["size"].AsInteger();
 
                             byte[] convexBytes = new byte[convexSize];
-                            
+
                             System.Buffer.BlockCopy(primShape.SculptData, convexOffset, convexBytes, 0, convexSize);
-                            
+
                             try
                             {
                                 convexBlockOsd = DecompressOsd(convexBytes);
@@ -449,7 +449,7 @@ namespace OpenSim.Region.PhysicsModule.Meshing
                                 //return false;
                             }
                         }
-                        
+
                         if (convexBlockOsd != null && convexBlockOsd is OSDMap)
                         {
                             convexBlock = convexBlockOsd as OSDMap;
@@ -597,28 +597,22 @@ namespace OpenSim.Region.PhysicsModule.Meshing
         {
             OSD decodedOsd = null;
 
-            using (MemoryStream inMs = new MemoryStream(meshBytes))
+            using (MemoryStream outMs = new MemoryStream())
             {
-                using (MemoryStream outMs = new MemoryStream())
+                using (MemoryStream inMs = new MemoryStream(meshBytes))
                 {
                     using (DeflateStream decompressionStream = new DeflateStream(inMs, CompressionMode.Decompress))
                     {
-                        byte[] readBuffer = new byte[2048];
+                        byte[] readBuffer = new byte[8192];
                         inMs.Read(readBuffer, 0, 2); // skip first 2 bytes in header
                         int readLen = 0;
 
                         while ((readLen = decompressionStream.Read(readBuffer, 0, readBuffer.Length)) > 0)
                             outMs.Write(readBuffer, 0, readLen);
-
-                        outMs.Flush();
-
-                        outMs.Seek(0, SeekOrigin.Begin);
-
-                        byte[] decompressedBuf = outMs.GetBuffer();
-
-                        decodedOsd = OSDParser.DeserializeLLSDBinary(decompressedBuf);
                     }
                 }
+                outMs.Seek(0, SeekOrigin.Begin);
+                decodedOsd = OSDParser.DeserializeLLSDBinary(outMs);
             }
             return decodedOsd;
         }
@@ -762,7 +756,7 @@ namespace OpenSim.Region.PhysicsModule.Meshing
         {
             PrimMesh primMesh;
             coords = new List<Coord>();
-            faces = new List<Face>();            
+            faces = new List<Face>();
 
             float pathShearX = primShape.PathShearX < 128 ? (float)primShape.PathShearX * 0.01f : (float)(primShape.PathShearX - 256) * 0.01f;
             float pathShearY = primShape.PathShearY < 128 ? (float)primShape.PathShearY * 0.01f : (float)(primShape.PathShearY - 256) * 0.01f;
@@ -994,7 +988,7 @@ namespace OpenSim.Region.PhysicsModule.Meshing
                 if ((!isPhysical) && size.X < minSizeForComplexMesh && size.Y < minSizeForComplexMesh && size.Z < minSizeForComplexMesh)
                 {
 #if SPAM
-                m_log.Debug("Meshmerizer: prim " + primName + " has a size of " + size.ToString() + " which is below threshold of " + 
+                m_log.Debug("Meshmerizer: prim " + primName + " has a size of " + size.ToString() + " which is below threshold of " +
                             minSizeForComplexMesh.ToString() + " - creating simple bounding box");
 #endif
                     mesh = CreateBoundingBoxMesh(mesh);

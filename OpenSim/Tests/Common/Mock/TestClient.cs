@@ -118,6 +118,7 @@ namespace OpenSim.Tests.Common
         public event SetAlwaysRun OnSetAlwaysRun;
 
         public event DeRezObject OnDeRezObject;
+        public event RezRestoreToWorld OnRezRestoreToWorld;
         public event Action<IClientAPI> OnRegionHandShakeReply;
         public event GenericCall1 OnRequestWearables;
         public event Action<IClientAPI, bool> OnCompleteMovementToRegion;
@@ -320,7 +321,7 @@ namespace OpenSim.Tests.Common
         public event AvatarInterestUpdate OnAvatarInterestUpdate;
 
         public event PlacesQuery OnPlacesQuery;
-        
+
         public event FindAgentUpdate OnFindAgent;
         public event TrackAgentUpdate OnTrackAgent;
         public event NewUserReport OnUserReport;
@@ -342,6 +343,8 @@ namespace OpenSim.Tests.Common
         public event GodlikeMessage onGodlikeMessage;
         public event GodUpdateRegionInfoUpdate OnGodUpdateRegionInfoUpdate;
         public event GenericCall2 OnUpdateThrottles;
+        public event AgentFOV OnAgentFOV;
+
 #pragma warning restore 67
 
         /// <value>
@@ -350,6 +353,8 @@ namespace OpenSim.Tests.Common
         private UUID m_agentId;
 
         public ISceneAgent SceneAgent { get; set; }
+
+        public bool SupportObjectAnimations { get; set; }
 
         /// <value>
         /// The last caps seed url that this client was given.
@@ -363,6 +368,8 @@ namespace OpenSim.Tests.Common
             get { return startPos; }
             set { }
         }
+
+        public float StartFar { get; set; }
 
         public virtual UUID AgentId
         {
@@ -403,22 +410,32 @@ namespace OpenSim.Tests.Common
         public UUID ActiveGroupId
         {
             get { return UUID.Zero; }
+            set { }
         }
 
         public string ActiveGroupName
         {
             get { return String.Empty; }
+            set { }
         }
 
         public ulong ActiveGroupPowers
         {
             get { return 0; }
+            set { }
         }
 
         public bool IsGroupMember(UUID groupID)
         {
             return false;
         }
+
+        public Dictionary<UUID, ulong> GetGroupPowers()
+        {
+            return new Dictionary<UUID, ulong>();
+        }
+
+        public void SetGroupPowers(Dictionary<UUID, ulong> powers) { }
 
         public ulong GetGroupPowers(UUID groupID)
         {
@@ -428,6 +445,7 @@ namespace OpenSim.Tests.Common
         public virtual int NextAnimationSequenceNumber
         {
             get { return 1; }
+            set { }
         }
 
         public IScene Scene
@@ -560,10 +578,6 @@ namespace OpenSim.Tests.Common
         {
         }
 
-        public virtual void SendStartPingCheck(byte seq)
-        {
-        }
-
         public virtual void SendAvatarPickerReply(AvatarPickerReplyAgentDataArgs AgentData, List<AvatarPickerReplyDataArgs> Data)
         {
         }
@@ -637,20 +651,17 @@ namespace OpenSim.Tests.Common
             return false;
         }
 
-        public virtual void SendLayerData(float[] map)
+        public virtual void SendLayerData()
         {
         }
 
-        public virtual void SendLayerData(int px, int py, float[] map)
-        {
-        }
-        public virtual void SendLayerData(int px, int py, float[] map, bool track)
+        public void SendLayerData(int[] map)
         {
         }
 
-        public virtual void SendWindData(Vector2[] windSpeeds) { }
+        public virtual void SendWindData(int version, Vector2[] windSpeeds) { }
 
-        public virtual void SendCloudData(float[] cloudCover) { }
+        public virtual void SendCloudData(int version, float[] cloudCover) { }
 
         public virtual void MoveAgentIntoRegion(RegionInfo regInfo, Vector3 pos, Vector3 look)
         {
@@ -662,7 +673,7 @@ namespace OpenSim.Tests.Common
         {
             AgentCircuitData agentData = new AgentCircuitData();
             agentData.AgentID = AgentId;
-            agentData.SessionID = SessionId; 
+            agentData.SessionID = SessionId;
             agentData.SecureSessionID = UUID.Zero;
             agentData.circuitcode = m_circuitCode;
             agentData.child = false;
@@ -702,7 +713,7 @@ namespace OpenSim.Tests.Common
         public virtual void SendTeleportFailed(string reason)
         {
             m_log.DebugFormat(
-                "[TEST CLIENT]: Teleport failed for {0} {1} on {2} with reason {3}", 
+                "[TEST CLIENT]: Teleport failed for {0} {1} on {2} with reason {3}",
                 m_firstName, m_lastName, m_scene.Name, reason);
         }
 
@@ -749,7 +760,11 @@ namespace OpenSim.Tests.Common
         {
         }
 
-        public void SendAvatarDataImmediate(ISceneEntity avatar)
+        public void SendEntityFullUpdateImmediate(ISceneEntity ent)
+        {
+        }
+
+        public void SendEntityTerseUpdateImmediate(ISceneEntity ent)
         {
         }
 
@@ -770,7 +785,7 @@ namespace OpenSim.Tests.Common
         public virtual void SendInventoryFolderDetails(UUID ownerID, UUID folderID,
                                                        List<InventoryItemBase> items,
                                                        List<InventoryFolderBase> folders,
-                                                       int version, 
+                                                       int version,
                                                        bool fetchFolders,
                                                        bool fetchItems)
         {
@@ -804,7 +819,8 @@ namespace OpenSim.Tests.Common
         {
         }
 
-        public virtual void SendXferPacket(ulong xferID, uint packet, byte[] data, bool isTaskInventory)
+        public virtual void SendXferPacket(ulong xferID, uint packet,
+                byte[] XferData, int XferDataOffset, int XferDatapktLen, bool isTaskInventory)
         {
         }
 
@@ -850,6 +866,10 @@ namespace OpenSim.Tests.Common
         {
         }
 
+        public void SendAlertMessage(string message, string info)
+        {
+        }
+
         public void SendSystemAlertMessage(string message)
         {
         }
@@ -859,14 +879,14 @@ namespace OpenSim.Tests.Common
         {
         }
 
-        public virtual void SendRegionHandshake(RegionInfo regionInfo, RegionHandshakeArgs args)
+        public virtual void SendRegionHandshake()
         {
             if (OnRegionHandShakeReply != null)
             {
                 OnRegionHandShakeReply(this);
             }
         }
-        
+
         public void SendAssetUploadCompleteMessage(sbyte AssetType, bool Success, UUID AssetFullID)
         {
         }
@@ -975,7 +995,7 @@ namespace OpenSim.Tests.Common
         {
         }
 
-        public void SendAvatarProperties(UUID avatarID, string aboutText, string bornOn, Byte[] charterMember,
+        public void SendAvatarProperties(UUID avatarID, string aboutText, string bornOn, Byte[] membershipType,
                                          string flAbout, uint flags, UUID flImageID, UUID imageID, string profileURL,
                                          UUID partnerID)
         {
@@ -1280,14 +1300,30 @@ namespace OpenSim.Tests.Common
         {
         }
 
+        public void UpdateGroupMembership(GroupMembershipData[] data)
+        {
+        }
+
+        public void GroupMembershipRemove(UUID GroupID)
+        {
+        }
+
+        public void GroupMembershipAddReplace(UUID GroupID,ulong GroupPowers)
+        {
+        }
+
         public void SendUseCachedMuteList()
+        {
+        }
+
+        public void SendEmpytMuteList()
         {
         }
 
         public void SendMuteListUpdate(string filename)
         {
         }
-        
+
         public void SendPickInfoReply(UUID pickID,UUID creatorID, bool topPick, UUID parcelID, string name, string desc, UUID snapshotID, string user, string originalName, string simName, Vector3 posGlobal, int sortOrder, bool enabled)
         {
         }
@@ -1307,7 +1343,7 @@ namespace OpenSim.Tests.Common
         {
         }
 
-        public void Disconnect() 
+        public void Disconnect()
         {
         }
 
@@ -1316,19 +1352,19 @@ namespace OpenSim.Tests.Common
             if (OnReceivedSendRebakeAvatarTextures != null)
                 OnReceivedSendRebakeAvatarTextures(textureID);
         }
-        
+
         public void SendAvatarInterestsReply(UUID avatarID, uint wantMask, string wantText, uint skillsMask, string skillsText, string languages)
         {
         }
-        
+
         public void SendGroupAccountingDetails(IClientAPI sender,UUID groupID, UUID transactionID, UUID sessionID, int amt)
         {
         }
-        
+
         public void SendGroupAccountingSummary(IClientAPI sender,UUID groupID, uint moneyAmt, int totalTier, int usedTier)
         {
         }
-        
+
         public void SendGroupTransactionsSummaryDetails(IClientAPI sender,UUID groupID, UUID transactionID, UUID sessionID,int amt)
         {
         }
@@ -1357,8 +1393,18 @@ namespace OpenSim.Tests.Common
         {
         }
 
+        public void SendSelectedPartsProprieties(List<ISceneEntity> parts)
+        {
+        }
+
         public void SendPartPhysicsProprieties(ISceneEntity entity)
         {
         }
+
+        public uint GetViewerCaps()
+        {
+            return 0x1000;
+        }
+
     }
 }

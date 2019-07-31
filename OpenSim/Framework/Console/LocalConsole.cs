@@ -46,12 +46,13 @@ namespace OpenSim.Framework.Console
         private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
         private string m_historyPath;
         private bool m_historyEnable;
+        private bool m_historytimestamps;
 
         // private readonly object m_syncRoot = new object();
         private const string LOGLEVEL_NONE = "(none)";
 
         // Used to extract categories for colourization.
-        private Regex m_categoryRegex 
+        private Regex m_categoryRegex
             = new Regex(
                 @"^(?<Front>.*?)\[(?<Category>[^\]]+)\]:?(?<End>.*)", RegexOptions.Singleline | RegexOptions.Compiled);
 
@@ -98,15 +99,30 @@ namespace OpenSim.Framework.Console
             string m_historyFile = startupConfig.GetString("ConsoleHistoryFile", "OpenSimConsoleHistory.txt");
             int m_historySize = startupConfig.GetInt("ConsoleHistoryFileLines", 100);
             m_historyPath = Path.GetFullPath(Path.Combine(Util.configDir(), m_historyFile));
-            m_log.InfoFormat("[LOCAL CONSOLE]: Persistent command line history is Enabled, up to {0} lines from file {1}", m_historySize, m_historyPath);
+            m_historytimestamps = startupConfig.GetBoolean("ConsoleHistoryTimeStamp", false);
+            m_log.InfoFormat("[LOCAL CONSOLE]: Persistent command line history is Enabled, up to {0} lines from file {1} {2} timestamps",
+                m_historySize, m_historyPath, m_historytimestamps?"with":"without");
 
             if (File.Exists(m_historyPath))
             {
+                List<string> originallines = new List<string>();
                 using (StreamReader history_file = new StreamReader(m_historyPath))
                 {
                     string line;
                     while ((line = history_file.ReadLine()) != null)
                     {
+                        originallines.Add(line);
+                        if(line.StartsWith("["))
+                        {
+                            int indx = line.IndexOf("]:> ");
+                            if(indx > 0)
+                            {
+                                if(indx + 4 >= line.Length)
+                                    line = String.Empty;
+                                else
+                                   line = line.Substring(indx + 4);
+                            }
+                        }
                         m_history.Add(line);
                     }
                 }
@@ -114,11 +130,14 @@ namespace OpenSim.Framework.Console
                 if (m_history.Count > m_historySize)
                 {
                     while (m_history.Count > m_historySize)
+                    {
                         m_history.RemoveAt(0);
+                        originallines.RemoveAt(0);
+                    }
 
                     using (StreamWriter history_file = new StreamWriter(m_historyPath))
                     {
-                        foreach (string line in m_history)
+                        foreach (string line in originallines)
                         {
                             history_file.WriteLine(line);
                         }
@@ -141,6 +160,8 @@ namespace OpenSim.Framework.Console
             m_history.Add(text);
             if (m_historyEnable)
             {
+                if (m_historytimestamps)
+                    text = String.Format("[{0} {1}]:> {2}", DateTime.Now.ToShortDateString(), DateTime.Now.ToShortTimeString(), text);
                 File.AppendAllText(m_historyPath, text + Environment.NewLine);
             }
         }
@@ -167,15 +188,15 @@ namespace OpenSim.Framework.Console
             {
                 System.Console.CursorLeft = 0;
             }
-            else 
+            else
             {
                 int bufferWidth = System.Console.BufferWidth;
-                
+
                 // On Mono 2.4.2.3 (and possibly above), the buffer value is sometimes erroneously zero (Mantis 4657)
                 if (bufferWidth > 0 && left >= bufferWidth)
                     System.Console.CursorLeft = bufferWidth - 1;
             }
-            
+
             if (top < 0)
             {
                 top = 0;
@@ -183,7 +204,7 @@ namespace OpenSim.Framework.Console
             else
             {
                 int bufferHeight = System.Console.BufferHeight;
-                
+
                 // On Mono 2.4.2.3 (and possibly above), the buffer value is sometimes erroneously zero (Mantis 4657)
                 if (bufferHeight > 0 && top >= bufferHeight)
                     top = bufferHeight - 1;
@@ -216,14 +237,14 @@ namespace OpenSim.Framework.Console
             {
                 System.Console.CursorTop = 0;
             }
-            else 
+            else
             {
                 int bufferHeight = System.Console.BufferHeight;
                 // On Mono 2.4.2.3 (and possibly above), the buffer value is sometimes erroneously zero (Mantis 4657)
                 if (bufferHeight > 0 && top >= bufferHeight)
                     System.Console.CursorTop = bufferHeight - 1;
             }
-            
+
             if (left < 0)
             {
                 left = 0;
@@ -339,7 +360,7 @@ namespace OpenSim.Framework.Console
             string outText = text;
 
             if (level != LOGLEVEL_NONE)
-            {               
+            {
                 MatchCollection matches = m_categoryRegex.Matches(text);
 
                 if (matches.Count == 1)
@@ -364,7 +385,7 @@ namespace OpenSim.Framework.Console
                 WriteColorText(ConsoleColor.Yellow, outText);
             else
                 System.Console.Write(outText);
-        
+
             System.Console.WriteLine();
         }
 
@@ -551,7 +572,7 @@ namespace OpenSim.Framework.Console
                         }
 
                         string commandLine = m_commandLine.ToString();
-                        
+
                         if (isCommand)
                         {
                             string[] cmd = Commands.Resolve(Parser.Parse(commandLine));
@@ -573,7 +594,7 @@ namespace OpenSim.Framework.Console
                         // If we're not echoing to screen (e.g. a password) then we probably don't want it in history
                         if (m_echo && commandLine != "")
                             AddToHistory(commandLine);
-                        
+
                         return commandLine;
                     default:
                         break;

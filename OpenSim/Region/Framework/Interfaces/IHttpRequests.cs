@@ -77,7 +77,7 @@ namespace OpenSim.Region.Framework.Interfaces
         /// then returned via IServiceRequest when the response is asynchronously fetched.
         /// </param>
         UUID StartHttpRequest(
-            uint localID, UUID itemID, string url, List<string> parameters, Dictionary<string, string> headers, string body, 
+            uint localID, UUID itemID, string url, List<string> parameters, Dictionary<string, string> headers, string body,
             out HttpInitialRequestStatus status);
 
         /// <summary>
@@ -87,5 +87,6 @@ namespace OpenSim.Region.Framework.Interfaces
         void StopHttpRequest(uint m_localID, UUID m_itemID);
         IServiceRequest GetNextCompletedRequest();
         void RemoveCompletedRequest(UUID id);
+        bool CheckThrottle(uint localID, UUID onerID);
     }
 }

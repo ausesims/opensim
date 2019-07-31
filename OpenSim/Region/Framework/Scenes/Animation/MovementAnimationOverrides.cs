@@ -43,7 +43,6 @@ using OpenSim.Region.Framework.Scenes.Types;
 using OpenSim.Region.PhysicsModules.SharedBase;
 using GridRegion = OpenSim.Services.Interfaces.GridRegion;
 using OpenSim.Services.Interfaces;
-using TeleportFlags = OpenSim.Framework.Constants.TeleportFlags;
 
 namespace OpenSim.Region.Framework.Scenes
 {
@@ -52,6 +51,7 @@ namespace OpenSim.Region.Framework.Scenes
         private static readonly ILog m_log =
             LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
+        private object MAOLock = new object();
         private Dictionary<string, UUID> m_overrides = new Dictionary<string, UUID>();
         public void SetOverride(string state, UUID animID)
         {
@@ -66,13 +66,13 @@ namespace OpenSim.Region.Framework.Scenes
 
             m_log.DebugFormat("Setting override for {0} to {1}", state, animID);
 
-            lock (m_overrides)
+            lock (MAOLock)
                 m_overrides[state] = animID;
         }
 
         public UUID GetOverriddenAnimation(string state)
         {
-            lock (m_overrides)
+            lock (MAOLock)
             {
                 if (m_overrides.ContainsKey(state))
                     return m_overrides[state];
@@ -83,7 +83,7 @@ namespace OpenSim.Region.Framework.Scenes
 
         public Dictionary<string, UUID> CloneAOPairs()
         {
-            lock (m_overrides)
+            lock (MAOLock)
             {
                 return new Dictionary<string, UUID>(m_overrides);
             }
@@ -91,7 +91,7 @@ namespace OpenSim.Region.Framework.Scenes
 
         public void CopyAOPairsFrom(Dictionary<string, UUID> src)
         {
-            lock (m_overrides)
+            lock (MAOLock)
             {
                 m_overrides.Clear();
                 m_overrides = new Dictionary<string, UUID>(src);

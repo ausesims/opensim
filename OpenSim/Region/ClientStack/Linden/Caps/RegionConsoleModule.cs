@@ -58,7 +58,7 @@ namespace OpenSim.Region.ClientStack.Linden
     {
 //        private static readonly ILog m_log =
 //            LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
-        
+
         private Scene m_scene;
         private IEventQueue m_eventQueue;
         private Commands m_commands = new Commands();
@@ -104,8 +104,8 @@ namespace OpenSim.Region.ClientStack.Linden
 
         public void RegisterCaps(UUID agentID, Caps caps)
         {
-            if (!m_scene.RegionInfo.EstateSettings.IsEstateManagerOrOwner(agentID) && !m_scene.Permissions.IsGod(agentID))
-                return;
+//            if (!m_scene.RegionInfo.EstateSettings.IsEstateManagerOrOwner(agentID) && !m_scene.Permissions.IsGod(agentID))
+//                return;
 
             UUID capID = UUID.Random();
 
@@ -155,7 +155,7 @@ namespace OpenSim.Region.ClientStack.Linden
 
             SendConsoleOutput(agentID, reply);
         }
-        
+
         public void AddCommand(string module, bool shared, string command, string help, string longhelp, CommandDelegate fn)
         {
             m_commands.AddCommand(module, shared, command, help, longhelp, fn);
@@ -185,10 +185,17 @@ namespace OpenSim.Region.ClientStack.Linden
 
         protected override byte[] ProcessRequest(string path, Stream request, IOSHttpRequest httpRequest, IOSHttpResponse httpResponse)
         {
-            StreamReader reader = new StreamReader(request);
-            string message = reader.ReadToEnd();
+            string message;
+            using(StreamReader reader = new StreamReader(request))
+                message = reader.ReadToEnd();
 
             OSD osd = OSDParser.DeserializeLLSDXml(message);
+
+            if (!m_scene.RegionInfo.EstateSettings.IsEstateManagerOrOwner(m_agentID) && !m_isGod)
+            {
+                m_consoleModule.SendConsoleOutput(m_agentID, "No access");
+                return new byte[0];
+            }
 
             string cmd = osd.AsString();
             if (cmd == "set console on")

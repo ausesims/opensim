@@ -83,24 +83,28 @@ namespace OpenSim.Region.Framework.Interfaces
         /// </summary>
         /// <param name='id'>The agent ID</para></param>
         /// <returns>true if the agent is in the process of being teleported, false otherwise.</returns>
-        bool IsInTransit(UUID id);        
+        bool IsInTransit(UUID id);
 
         bool Cross(ScenePresence agent, bool isFlying);
 
         void AgentArrivedAtDestination(UUID agent);
 
         void EnableChildAgents(ScenePresence agent);
+        void CheckChildAgents(ScenePresence agent);
+        void CloseOldChildAgents(ScenePresence agent);
 
         void EnableChildAgent(ScenePresence agent, GridRegion region);
 
         GridRegion GetDestination(Scene scene, UUID agentID, Vector3 pos, EntityTransferContext ctx,
                                         out Vector3 newpos, out string reason);
-		GridRegion GetObjectDestination(SceneObjectGroup grp, Vector3 targetPosition, out Vector3 newpos);
+        GridRegion GetObjectDestination(SceneObjectGroup grp, Vector3 targetPosition, out Vector3 newpos);
         bool checkAgentAccessToRegion(ScenePresence agent, GridRegion destiny, Vector3 position, EntityTransferContext ctx, out string reason);
 
         bool CrossPrimGroupIntoNewRegion(GridRegion destination, Vector3 newPosition, SceneObjectGroup grp, bool silent, bool removeScripts);
 
         ScenePresence CrossAgentToNewRegionAsync(ScenePresence agent, Vector3 pos, GridRegion neighbourRegion, bool isFlying, EntityTransferContext ctx);
+
+        bool CrossAgentCreateFarChild(ScenePresence agent, GridRegion neighbourRegion, Vector3 pos, EntityTransferContext ctx);
 
         bool HandleIncomingSceneObject(SceneObjectGroup so, Vector3 newPosition);
     }

@@ -100,7 +100,15 @@ namespace Prebuild.Core.Nodes
         /// <summary>
         /// .NET 4.5.1
         /// </summary>
-        v4_5_1
+        v4_5_1,
+        /// <summary>
+        /// .NET 4.6
+        /// </summary>
+        v4_6,
+        /// <summary>
+        /// .NET 4.6.1
+        /// </summary>
+        v4_6_1
     }
 	/// <summary>
 	/// The Node object representing /Prebuild/Solution/Project elements
@@ -115,12 +123,14 @@ namespace Prebuild.Core.Nodes
 		private string m_FullPath = "";
 		private string m_AssemblyName;
 		private string m_AppIcon = "";
+        private string m_ApplicationManifest = "";
         private string m_ConfigFile = "";
 		private string m_DesignerFolder = "";
 		private string m_Language = "C#";
 		private ProjectType m_Type = ProjectType.Exe;
 		private ClrRuntime m_Runtime = ClrRuntime.Microsoft;
         private FrameworkVersion m_Framework = FrameworkVersion.v2_0;
+        private bool m_useFramework = true;
 		private string m_StartupObject = "";
 		private string m_RootNamespace;
 		private string m_FilterGroups = "";
@@ -158,6 +168,11 @@ namespace Prebuild.Core.Nodes
 			{
 			    return m_Framework;
 			}
+            set
+            {
+                m_Framework = value;
+                m_useFramework = false;
+            }
 		}
 		/// <summary>
 		/// Gets the path.
@@ -219,17 +234,29 @@ namespace Prebuild.Core.Nodes
 			}
 		}
 
-		/// <summary>
-		/// Gets the app icon.
-		/// </summary>
-		/// <value>The app icon.</value>
-		public string AppIcon 
-		{
-			get 
-			{
-				return m_AppIcon;
-			}
-		}
+        /// <summary>
+        /// Gets the app icon.
+        /// </summary>
+        /// <value>The app icon.</value>
+        public string AppIcon
+        {
+            get
+            {
+                return m_AppIcon;
+            }
+        }
+
+        /// <summary>
+        /// Gets the Application Manifest.
+        /// </summary>
+        /// <value>The Application Manifest.</value>
+        public string ApplicationManifest
+        {
+            get
+            {
+                return m_ApplicationManifest;
+            }
+        }
 
 		/// <summary>
 		/// Gets the app icon.
@@ -491,16 +518,19 @@ namespace Prebuild.Core.Nodes
 			m_Name = Helper.AttributeValue(node, "name", m_Name);
 			m_Path = Helper.AttributeValue(node, "path", m_Path);
 			m_FilterGroups = Helper.AttributeValue(node, "filterGroups", m_FilterGroups);
-			m_Version = Helper.AttributeValue(node, "version", m_Version);
-			m_AppIcon = Helper.AttributeValue(node, "icon", m_AppIcon);
+            m_Version = Helper.AttributeValue(node, "version", m_Version);
+            m_AppIcon = Helper.AttributeValue(node, "icon", m_AppIcon);
+            m_ApplicationManifest = Helper.AttributeValue(node, "appmanifest", m_ApplicationManifest);
             m_ConfigFile = Helper.AttributeValue(node, "configFile", m_ConfigFile);
 			m_DesignerFolder = Helper.AttributeValue(node, "designerFolder", m_DesignerFolder);
 			m_AssemblyName = Helper.AttributeValue(node, "assemblyName", m_AssemblyName);
 			m_Language = Helper.AttributeValue(node, "language", m_Language);
 			m_Type = (ProjectType)Helper.EnumAttributeValue(node, "type", typeof(ProjectType), m_Type);
 			m_Runtime = (ClrRuntime)Helper.EnumAttributeValue(node, "runtime", typeof(ClrRuntime), m_Runtime);
-            m_Framework = (FrameworkVersion)Helper.EnumAttributeValue(node, "frameworkVersion", typeof(FrameworkVersion), m_Framework);
-			m_StartupObject = Helper.AttributeValue(node, "startupObject", m_StartupObject);
+            if(m_useFramework)
+                m_Framework = (FrameworkVersion)Helper.EnumAttributeValue(node, "frameworkVersion", typeof(FrameworkVersion), m_Framework);
+			
+            m_StartupObject = Helper.AttributeValue(node, "startupObject", m_StartupObject);
 			m_RootNamespace = Helper.AttributeValue(node, "rootNamespace", m_RootNamespace);
 			
             int hash = m_Name.GetHashCode();

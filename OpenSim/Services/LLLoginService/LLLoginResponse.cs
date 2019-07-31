@@ -61,7 +61,7 @@ namespace OpenSim.Services.LLLoginService
 
         static LLFailedLoginResponse()
         {
-            UserProblem = new LLFailedLoginResponse("key", 
+            UserProblem = new LLFailedLoginResponse("key",
                 "Could not authenticate your avatar. Please check your username and password, and check the grid if problems persist.",
                 "false");
             GridProblem = new LLFailedLoginResponse("key",
@@ -82,9 +82,8 @@ namespace OpenSim.Services.LLLoginService
                 "false");
             AlreadyLoggedInProblem = new LLFailedLoginResponse("presence",
                 "You appear to be already logged in. " +
-                "If this is not the case please wait for your session to timeout. " +
-                "If this takes longer than a few minutes please contact the grid owner. " +
-                "Please wait 5 minutes if you are going to connect to a region nearby to the region you were at previously.",
+                "Please wait a a minute or two and retry. " +
+                "If this takes longer than a few minutes please contact the grid owner. ",
                 "false");
             InternalError = new LLFailedLoginResponse("Internal Error", "Error generating Login Response", "false");
         }
@@ -307,7 +306,7 @@ namespace OpenSim.Services.LLLoginService
                     {
                         DST = dstTimeZone.IsDaylightSavingTime(DateTime.Now) ? "Y" : "N";
                     }
-                
+
                     break;
             }
         }
@@ -417,7 +416,7 @@ namespace OpenSim.Services.LLLoginService
 //            try
 //            {
 //                // First try to fetch DST from Pacific Standard Time, because this is
-//                // the one expected by the viewer. "US/Pacific" is the string to search 
+//                // the one expected by the viewer. "US/Pacific" is the string to search
 //                // on linux and mac, and should work also on Windows (to confirm)
 //                gridTimeZone = TimeZoneInfo.FindSystemTimeZoneById("US/Pacific");
 //            }
@@ -447,7 +446,7 @@ namespace OpenSim.Services.LLLoginService
             ErrorReason = "key";
             welcomeMessage = "Welcome to OpenSim!";
             seedCapability = String.Empty;
-            home = "{'region_handle':[" 
+            home = "{'region_handle':["
                     + "r" + Util.RegionToWorldLoc(1000).ToString()
                     + ","
                     + "r" + Util.RegionToWorldLoc(1000).ToString()
@@ -581,7 +580,10 @@ namespace OpenSim.Services.LLLoginService
 
                 // We need to send an openid_token back in the response too
                 if (openIDURL != String.Empty)
+                {
                     responseData["openid_url"] = openIDURL;
+                    responseData["openid_token"] = AgentID.ToString() + ":" + Util.Md5Hash(SecureSessionID.ToString());
+                }
 
                 if (m_buddyList != null)
                 {
@@ -593,7 +595,7 @@ namespace OpenSim.Services.LLLoginService
                     // responseData["real_currency"] = currency;
                     responseData["currency"] = currency;
                 }
-                
+
                 if (ClassifiedFee != String.Empty)
                     responseData["classified_fee"] = ClassifiedFee;
 
@@ -697,7 +699,10 @@ namespace OpenSim.Services.LLLoginService
                     map["profile-server-url"] = OSD.FromString(profileURL);
 
                 if (openIDURL != String.Empty)
+                {
                     map["openid_url"] = OSD.FromString(openIDURL);
+                    map["openid_token"] = OSD.FromString(AgentID.ToString() + ":" + Util.Md5Hash(SecureSessionID.ToString()));
+                }
 
                 if (searchURL != String.Empty)
                     map["search"] = OSD.FromString(searchURL);
@@ -1070,7 +1075,7 @@ namespace OpenSim.Services.LLLoginService
             get { return activeGestures; }
             set { activeGestures = value; }
         }
-                
+
         public string Home
         {
             get { return home; }

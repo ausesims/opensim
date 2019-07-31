@@ -33,7 +33,6 @@ using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Net;
-using System.Net.Security;
 using System.Reflection;
 using System.Text;
 using System.Web;
@@ -43,9 +42,9 @@ using System.Xml.Linq;
 using log4net;
 using Nwc.XmlRpc;
 using OpenMetaverse.StructuredData;
+using OpenSim.Framework.ServiceAuth;
 using XMLResponseHelper = OpenSim.Framework.SynchronousRestObjectRequester.XMLResponseHelper;
 
-using OpenSim.Framework.ServiceAuth;
 
 namespace OpenSim.Framework
 {
@@ -72,11 +71,6 @@ namespace OpenSim.Framework
         public static int RequestNumber { get; set; }
 
         /// <summary>
-        /// Control where OSD requests should be serialized per endpoint.
-        /// </summary>
-        public static bool SerializeOSDRequestsPerEndpoint { get; set; }
-
-        /// <summary>
         /// this is the header field used to communicate the local request id
         /// used for performance and debugging
         /// </summary>
@@ -97,31 +91,6 @@ namespace OpenSim.Framework
         /// This is also used to truncate messages when using DebugLevel 5.
         /// </remarks>
         public const int MaxRequestDiagLength = 200;
-
-        /// <summary>
-        /// Dictionary of end points
-        /// </summary>
-        private static Dictionary<string,object> m_endpointSerializer = new Dictionary<string,object>();
-
-        private static object EndPointLock(string url)
-        {
-            System.Uri uri = new System.Uri(url);
-            string endpoint = string.Format("{0}:{1}",uri.Host,uri.Port);
-
-            lock (m_endpointSerializer)
-            {
-                object eplock = null;
-
-                if (! m_endpointSerializer.TryGetValue(endpoint,out eplock))
-                {
-                    eplock = new object();
-                    m_endpointSerializer.Add(endpoint,eplock);
-                    // m_log.WarnFormat("[WEB UTIL] add a new host to end point serializer {0}",endpoint);
-                }
-
-                return eplock;
-            }
-        }
 
         #region JSONRequest
 
@@ -152,21 +121,6 @@ namespace OpenSim.Framework
         public static OSDMap GetFromService(string url, int timeout)
         {
             return ServiceOSDRequest(url, null, "GET", timeout, false, false);
-        }
-
-        public static OSDMap ServiceOSDRequest(string url, OSDMap data, string method, int timeout, bool compressed, bool rpc)
-        {
-            if (SerializeOSDRequestsPerEndpoint)
-            {
-                lock (EndPointLock(url))
-                {
-                    return ServiceOSDRequestWorker(url, data, method, timeout, compressed, rpc);
-                }
-            }
-            else
-            {
-                return ServiceOSDRequestWorker(url, data, method, timeout, compressed, rpc);
-            }
         }
 
         public static void LogOutgoingDetail(Stream outputStream)
@@ -222,7 +176,7 @@ namespace OpenSim.Framework
             LogOutgoingDetail(string.Format("RESPONSE {0}: ", reqnum), input);
         }
 
-        private static OSDMap ServiceOSDRequestWorker(string url, OSDMap data, string method, int timeout, bool compressed, bool rpc)
+        public static OSDMap ServiceOSDRequest(string url, OSDMap data, string method, int timeout, bool compressed, bool rpc, bool keepalive = false)
         {
             int reqnum = RequestNumber++;
 
@@ -243,11 +197,11 @@ namespace OpenSim.Framework
                 HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
                 request.Method = method;
                 request.Timeout = timeout;
-                request.KeepAlive = false;
+                request.KeepAlive = keepalive;
                 request.MaximumAutomaticRedirections = 10;
-                request.ReadWriteTimeout = timeout / 4;
+                request.ReadWriteTimeout = timeout / 2;
                 request.Headers[OSHeaderRequestID] = reqnum.ToString();
-                
+
                 // If there is some input, write it into the request
                 if (data != null)
                 {
@@ -261,7 +215,7 @@ namespace OpenSim.Framework
                     byte[] buffer = System.Text.Encoding.UTF8.GetBytes(strBuffer);
 
                     request.ContentType = rpc ? "application/json-rpc" : "application/json";
-                    
+
                     if (compressed)
                     {
                         request.Headers["X-Content-Encoding"] = "gzip"; // can't set "Content-Encoding" because old OpenSims fail if they get an unrecognized Content-Encoding
@@ -287,7 +241,6 @@ namespace OpenSim.Framework
                     }
                     else
                     {
-                        tickcompressdata = tickJsondata;
                         compsize = buffer.Length;
 
                         request.ContentLength = buffer.Length;   //Count bytes to send
@@ -295,7 +248,7 @@ namespace OpenSim.Framework
                             requestStream.Write(buffer, 0, buffer.Length);         //Send it
                     }
                 }
-                
+
                 // capture how much time was spent writing, this may seem silly
                 // but with the number concurrent requests, this often blocks
                 tickdata = Util.EnvironmentTickCountSubtract(tickstart);
@@ -355,7 +308,7 @@ namespace OpenSim.Framework
                         reqnum, tickdiff, tickdata);
                 }
             }
-           
+
             m_log.DebugFormat(
                 "[LOGHTTP]: JSON-RPC request {0} {1} to {2} FAILED: {3}", reqnum, method, url, errorMessage);
 
@@ -379,7 +332,7 @@ namespace OpenSim.Framework
             result["success"] = OSD.FromBoolean(true);
             result["_RawResult"] = OSD.FromString(response);
             result["_Result"] = new OSDMap();
-            
+
             if (response.Equals("true",System.StringComparison.OrdinalIgnoreCase))
                 return result;
 
@@ -390,7 +343,7 @@ namespace OpenSim.Framework
                 return result;
             }
 
-            try 
+            try
             {
                 OSD responseOSD = OSDParser.Deserialize(response);
                 if (responseOSD.Type == OSDType.Map)
@@ -404,10 +357,10 @@ namespace OpenSim.Framework
                 // don't need to treat this as an error... we're just guessing anyway
 //                m_log.DebugFormat("[WEB UTIL] couldn't decode <{0}>: {1}",response,e.Message);
             }
-            
+
             return result;
         }
-        
+
         #endregion JSONRequest
 
         #region FormRequest
@@ -420,16 +373,8 @@ namespace OpenSim.Framework
         {
             return ServiceFormRequest(url,data, 30000);
         }
-        
-        public static OSDMap ServiceFormRequest(string url, NameValueCollection data, int timeout)
-        {
-            lock (EndPointLock(url))
-            {
-                return ServiceFormRequestWorker(url,data,timeout);
-            }
-        }
 
-        private static OSDMap ServiceFormRequestWorker(string url, NameValueCollection data, int timeout)
+        public static OSDMap ServiceFormRequest(string url, NameValueCollection data, int timeout)
         {
             int reqnum = RequestNumber++;
             string method = (data != null && data["RequestMethod"] != null) ? data["RequestMethod"] : "unknown";
@@ -437,7 +382,7 @@ namespace OpenSim.Framework
             if (DebugLevel >= 3)
                 m_log.DebugFormat("[LOGHTTP]: HTTP OUT {0} ServiceForm '{1}' to {2}",
                     reqnum, method, url);
-            
+
             string errorMessage = "unknown error";
             int tickstart = Util.EnvironmentTickCount();
             int tickdata = 0;
@@ -450,9 +395,9 @@ namespace OpenSim.Framework
                 request.Timeout = timeout;
                 request.KeepAlive = false;
                 request.MaximumAutomaticRedirections = 10;
-                request.ReadWriteTimeout = timeout / 4;
+                request.ReadWriteTimeout = timeout / 2;
                 request.Headers[OSHeaderRequestID] = reqnum.ToString();
-                
+
                 if (data != null)
                 {
                     queryString = BuildQueryString(data);
@@ -461,7 +406,7 @@ namespace OpenSim.Framework
                         LogOutgoingDetail("SEND", reqnum, queryString);
 
                     byte[] buffer = System.Text.Encoding.UTF8.GetBytes(queryString);
-                    
+
                     request.ContentLength = buffer.Length;
                     request.ContentType = "application/x-www-form-urlencoded";
                     using (Stream requestStream = request.GetRequestStream())
@@ -539,7 +484,7 @@ namespace OpenSim.Framework
         }
 
         #endregion FormRequest
-        
+
         #region Uri
 
         /// <summary>
@@ -592,7 +537,7 @@ namespace OpenSim.Framework
         }
 
         /// <summary>
-        /// Appends a query string to a Uri that may or may not have existing 
+        /// Appends a query string to a Uri that may or may not have existing
         /// query parameters
         /// </summary>
         /// <param name="uri">Uri to append the query to</param>
@@ -644,7 +589,7 @@ namespace OpenSim.Framework
         }
 
         /// <summary>
-        /// 
+        ///
         /// </summary>
         /// <param name="collection"></param>
         /// <param name="key"></param>
@@ -663,12 +608,12 @@ namespace OpenSim.Framework
         #region Stream
 
         /// <summary>
-        /// Copies the contents of one stream to another, starting at the 
+        /// Copies the contents of one stream to another, starting at the
         /// current position of each stream
         /// </summary>
-        /// <param name="copyFrom">The stream to copy from, at the position 
+        /// <param name="copyFrom">The stream to copy from, at the position
         /// where copying should begin</param>
-        /// <param name="copyTo">The stream to copy to, at the position where 
+        /// <param name="copyTo">The stream to copy to, at the position where
         /// bytes should be written</param>
         /// <param name="maximumBytesToCopy">The maximum bytes to copy</param>
         /// <returns>The total number of bytes copied</returns>
@@ -812,7 +757,7 @@ namespace OpenSim.Framework
         /// </param>
         /// <param name="maxConnections"></param>
         /// <returns>
-        /// The response.  If there was an internal exception or the request timed out, 
+        /// The response.  If there was an internal exception or the request timed out,
         /// then the default(TResponse) is returned.
         /// </returns>
         public static void MakeRequest<TRequest, TResponse>(string verb,
@@ -910,7 +855,7 @@ namespace OpenSim.Framework
                             // If the server returns a 404, this appears to trigger a System.Net.WebException even though that isn't
                             // documented in MSDN
                             using (WebResponse response = request.EndGetResponse(res2))
-                            {   
+                            {
                                 try
                                 {
                                     using (Stream respStream = response.GetResponseStream())
@@ -931,7 +876,7 @@ namespace OpenSim.Framework
                                 if (e.Response is HttpWebResponse)
                                 {
                                     using (HttpWebResponse httpResponse = (HttpWebResponse)e.Response)
-                                    {        
+                                    {
                                         if (httpResponse.StatusCode != HttpStatusCode.NotFound)
                                         {
                                             // We don't appear to be handling any other status codes, so log these feailures to that
@@ -956,7 +901,7 @@ namespace OpenSim.Framework
                                 "[ASYNC REQUEST]: Request {0} {1} failed with exception {2}{3}",
                                 verb, requestUrl, e.Message, e.StackTrace);
                         }
-        
+
                         //  m_log.DebugFormat("[ASYNC REQUEST]: Received {0}", deserial.ToString());
 
                         try
@@ -969,7 +914,7 @@ namespace OpenSim.Framework
                                 "[ASYNC REQUEST]: Request {0} {1} callback failed with exception {2}{3}",
                                 verb, requestUrl, e.Message, e.StackTrace);
                         }
-        
+
                     }, null);
                 }
 
@@ -998,7 +943,7 @@ namespace OpenSim.Framework
                 }
             }
             finally
-            { 
+            {
                 if (buffer != null)
                     buffer.Dispose();
             }
@@ -1020,7 +965,8 @@ namespace OpenSim.Framework
         ///
         /// <exception cref="System.Net.WebException">Thrown if we encounter a network issue while posting
         /// the request.  You'll want to make sure you deal with this as they're not uncommon</exception>
-        public static string MakeRequest(string verb, string requestUrl, string obj, int timeoutsecs, IServiceAuth auth)
+        public static string MakeRequest(string verb, string requestUrl, string obj, int timeoutsecs = -1,
+                 IServiceAuth auth = null, bool keepalive = true)
         {
             int reqnum = WebUtil.RequestNumber++;
 
@@ -1035,6 +981,8 @@ namespace OpenSim.Framework
             request.Method = verb;
             if (timeoutsecs > 0)
                 request.Timeout = timeoutsecs * 1000;
+            if(!keepalive && request is HttpWebRequest)
+                ((HttpWebRequest)request).KeepAlive = false;
 
             if (auth != null)
                 auth.AddAuthorization(request.Headers);
@@ -1063,11 +1011,10 @@ namespace OpenSim.Framework
                     if (WebUtil.DebugLevel >= 5)
                         WebUtil.LogOutgoingDetail("SEND", reqnum, System.Text.Encoding.UTF8.GetString(data));
 
-                    Stream requestStream = null;
                     try
                     {
-                        requestStream = request.GetRequestStream();
-                        requestStream.Write(data, 0, length);
+                        using(Stream requestStream = request.GetRequestStream())
+                            requestStream.Write(data,0,length);
                     }
                     catch (Exception e)
                     {
@@ -1077,9 +1024,6 @@ namespace OpenSim.Framework
                     }
                     finally
                     {
-                        if (requestStream != null)
-                            requestStream.Dispose();
-
                         // capture how much time was spent writing
                         tickdata = Util.EnvironmentTickCountSubtract(tickstart);
                     }
@@ -1130,16 +1074,6 @@ namespace OpenSim.Framework
             return respstring;
         }
 
-        public static string MakeRequest(string verb, string requestUrl, string obj, int timeoutsecs)
-        {
-            return MakeRequest(verb, requestUrl, obj, timeoutsecs, null);
-        }
-
-        public static string MakeRequest(string verb, string requestUrl, string obj)
-        {
-            return MakeRequest(verb, requestUrl, obj, -1);
-        }
-
         public static string MakeRequest(string verb, string requestUrl, string obj, IServiceAuth auth)
         {
             return MakeRequest(verb, requestUrl, obj, -1, auth);
@@ -1180,7 +1114,7 @@ namespace OpenSim.Framework
         /// Request timeout in milliseconds.  Timeout.Infinite indicates no timeout.  If 0 is passed then the default HttpWebRequest timeout is used (100 seconds)
         /// </param>
         /// <returns>
-        /// The response.  If there was an internal exception or the request timed out, 
+        /// The response.  If there was an internal exception or the request timed out,
         /// then the default(TResponse) is returned.
         /// </returns>
         public static TResponse MakeRequest<TRequest, TResponse>(string verb, string requestUrl, TRequest obj, int pTimeout)
@@ -1203,7 +1137,7 @@ namespace OpenSim.Framework
         /// </param>
         /// <param name="maxConnections"></param>
         /// <returns>
-        /// The response.  If there was an internal exception or the request timed out, 
+        /// The response.  If there was an internal exception or the request timed out,
         /// then the default(TResponse) is returned.
         /// </returns>
         public static TResponse MakeRequest<TRequest, TResponse>(string verb, string requestUrl, TRequest obj, int pTimeout, int maxConnections)
@@ -1222,7 +1156,7 @@ namespace OpenSim.Framework
         /// </param>
         /// <param name="maxConnections"></param>
         /// <returns>
-        /// The response.  If there was an internal exception or the request timed out, 
+        /// The response.  If there was an internal exception or the request timed out,
         /// then the default(TResponse) is returned.
         /// </returns>
         public static TResponse MakeRequest<TRequest, TResponse>(string verb, string requestUrl, TRequest obj, int pTimeout, int maxConnections, IServiceAuth auth)
@@ -1327,18 +1261,24 @@ namespace OpenSim.Framework
                         {
                             if (hwr.StatusCode == HttpStatusCode.NotFound)
                                 return deserial;
+
                             if (hwr.StatusCode == HttpStatusCode.Unauthorized)
                             {
-                                m_log.Error(string.Format(
-                                    "[SynchronousRestObjectRequester]: Web request {0} requires authentication ",
-                                    requestUrl));
-                                return deserial;
+                                m_log.ErrorFormat("[SynchronousRestObjectRequester]: Web request {0} requires authentication",
+                                    requestUrl);
+                            }
+                            else
+                            {
+                                m_log.WarnFormat("[SynchronousRestObjectRequester]: Web request {0} returned error: {1}",
+                                    requestUrl, hwr.StatusCode);
                             }
                         }
                         else
-                            m_log.Error(string.Format(
-                                "[SynchronousRestObjectRequester]: WebException for {0} {1} {2} ",
-                                verb, requestUrl, typeof(TResponse).ToString()), e);
+                            m_log.ErrorFormat(
+                                "[SynchronousRestObjectRequester]: WebException for {0} {1} {2} {3}",
+                                verb, requestUrl, typeof(TResponse).ToString(), e.Message);
+
+                       return deserial;
                     }
                 }
                 catch (System.InvalidOperationException)
@@ -1387,22 +1327,48 @@ namespace OpenSim.Framework
 
             return deserial;
         }
-    
+
         public static class XMLResponseHelper
         {
             public static TResponse LogAndDeserialize<TRequest, TResponse>(int reqnum, Stream respStream, long contentLength)
             {
                 XmlSerializer deserializer = new XmlSerializer(typeof(TResponse));
-
                 if (WebUtil.DebugLevel >= 5)
                 {
-                    byte[] data = new byte[contentLength];
-                    Util.ReadStream(respStream, data);
+                    const int blockLength = 4096;
+                    byte[] dataBuffer = new byte[blockLength];
+                    int curcount;
+                    using (MemoryStream ms = new MemoryStream(4 * blockLength))
+                    {
+                        if(contentLength == -1)
+                        {
+                            while (true)
+                            {
+                                curcount = respStream.Read(dataBuffer, 0, blockLength);
+                                if (curcount <= 0)
+                                    break;
+                                ms.Write(dataBuffer, 0, curcount);
+                            }
+                        }
+                        else
+                        {
+                            int remaining = (int)contentLength;
+                            while (remaining > 0)
+                            {
+                                curcount = respStream.Read(dataBuffer, 0, remaining);
+                                if (curcount <= 0)
+                                    throw new EndOfStreamException(String.Format("End of stream reached with {0} bytes left to read", remaining));
+                                ms.Write(dataBuffer, 0, curcount);
+                                remaining -= curcount;
+                            }
+                        }
 
-                    WebUtil.LogResponseDetail(reqnum, System.Text.Encoding.UTF8.GetString(data));
+                        dataBuffer = ms.ToArray();
+                        WebUtil.LogResponseDetail(reqnum, System.Text.Encoding.UTF8.GetString(dataBuffer));
 
-                    using (MemoryStream temp = new MemoryStream(data))
-                        return (TResponse)deserializer.Deserialize(temp);
+                        ms.Position = 0;
+                        return (TResponse)deserializer.Deserialize(ms);
+                    }
                 }
                 else
                 {
@@ -1412,7 +1378,7 @@ namespace OpenSim.Framework
         }
     }
 
-    
+
     public static class XMLRPCRequester
     {
         private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
@@ -1456,7 +1422,7 @@ namespace OpenSim.Framework
                 {
                     m_log.Error("Error parsing XML-RPC response", e);
                 }
-                    
+
                 if (Resp.IsFault)
                 {
                     m_log.DebugFormat(
@@ -1486,6 +1452,5 @@ namespace OpenSim.Framework
                 }
             }
         }
-
     }
 }

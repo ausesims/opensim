@@ -64,7 +64,7 @@ namespace OpenSim.Framework.Capabilities
 
         private CapsHandlers m_capsHandlers;
 
-        private Dictionary<string, PollServiceEventArgs> m_pollServiceHandlers 
+        private Dictionary<string, PollServiceEventArgs> m_pollServiceHandlers
             = new Dictionary<string, PollServiceEventArgs>();
 
         private Dictionary<string, string> m_externalCapsHandlers = new Dictionary<string, string>();
@@ -119,6 +119,17 @@ namespace OpenSim.Framework.Capabilities
             get { return m_externalCapsHandlers; }
         }
 
+        [Flags]
+        public enum CapsFlags:uint
+        {
+            None =          0,
+            SentSeeds =     1,
+
+            ObjectAnim = 0x10
+        }
+
+        public CapsFlags Flags { get; set;}
+
         public Caps(IHttpServer httpServer, string httpListen, uint httpPort, string capsPath,
                     UUID agent, string regionName)
         {
@@ -136,9 +147,20 @@ namespace OpenSim.Framework.Capabilities
             }
 
             m_agentID = agent;
-            m_capsHandlers = new CapsHandlers(httpServer, httpListen, httpPort, (httpServer == null) ? false : httpServer.UseSSL);
+            m_capsHandlers = new CapsHandlers(httpServer, httpListen, httpPort);
             m_regionName = regionName;
+            Flags = CapsFlags.None;
             m_capsActive.Reset();
+        }
+
+        ~Caps()
+        {
+            Flags = CapsFlags.None;
+            if (m_capsActive!= null)
+            {
+                m_capsActive.Dispose();
+                m_capsActive = null;
+            }
         }
 
         /// <summary>
@@ -155,7 +177,7 @@ namespace OpenSim.Framework.Capabilities
         public void RegisterPollHandler(string capName, PollServiceEventArgs pollServiceHandler)
         {
 //            m_log.DebugFormat(
-//                "[CAPS]: Registering handler with name {0}, url {1} for {2}", 
+//                "[CAPS]: Registering handler with name {0}, url {1} for {2}",
 //                capName, pollServiceHandler.Url, m_agentID, m_regionName);
 
             m_pollServiceHandlers.Add(capName, pollServiceHandler);
@@ -165,7 +187,7 @@ namespace OpenSim.Framework.Capabilities
 //            uint port = (MainServer.Instance == null) ? 0 : MainServer.Instance.Port;
 //            string protocol = "http";
 //            string hostName = m_httpListenerHostName;
-//            
+//
 //            if (MainServer.Instance.UseSSL)
 //            {
 //                hostName = MainServer.Instance.SSLCommonName;
@@ -202,6 +224,7 @@ namespace OpenSim.Framework.Capabilities
             {
                 m_httpListener.RemovePollServiceHTTPHandler("", handler.Url);
             }
+            m_pollServiceHandlers.Clear();
         }
 
         public bool TryGetPollHandler(string name, out PollServiceEventArgs pollHandler)
@@ -233,7 +256,7 @@ namespace OpenSim.Framework.Capabilities
                         string hostName = m_httpListenerHostName;
                         uint port = (MainServer.Instance == null) ? 0 : MainServer.Instance.Port;
                         string protocol = "http";
-                        
+
                         if (MainServer.Instance.UseSSL)
                         {
                             hostName = MainServer.Instance.SSLCommonName;
@@ -256,6 +279,7 @@ namespace OpenSim.Framework.Capabilities
                 caps[kvp.Key] = kvp.Value;
             }
 
+            Flags |= CapsFlags.SentSeeds;
             return caps;
         }
 

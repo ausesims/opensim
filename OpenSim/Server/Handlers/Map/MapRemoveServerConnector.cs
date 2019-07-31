@@ -102,9 +102,9 @@ namespace OpenSim.Server.Handlers.MapImage
         public override byte[] Handle(string path, Stream requestData, IOSHttpRequest httpRequest, IOSHttpResponse httpResponse)
         {
 //            m_log.DebugFormat("[MAP SERVICE IMAGE HANDLER]: Received {0}", path);
-            StreamReader sr = new StreamReader(requestData);
-            string body = sr.ReadToEnd();
-            sr.Close();
+            string body;
+            using(StreamReader sr = new StreamReader(requestData))
+                body = sr.ReadToEnd();
             body = body.Trim();
 
             try
@@ -141,7 +141,7 @@ namespace OpenSim.Server.Handlers.MapImage
                     }
                     else
                     {
-                        m_log.WarnFormat("[MAP IMAGE HANDLER]: IP address {0} may be rogue. Region not found at coordinates {1}-{2}", 
+                        m_log.WarnFormat("[MAP IMAGE HANDLER]: IP address {0} may be rogue. Region not found at coordinates {1}-{2}",
                             ipAddr, x, y);
                         return FailureResult("Region not found at given coordinates");
                     }
@@ -215,19 +215,22 @@ namespace OpenSim.Server.Handlers.MapImage
 
         private byte[] DocToBytes(XmlDocument doc)
         {
-            MemoryStream ms = new MemoryStream();
-            XmlTextWriter xw = new XmlTextWriter(ms, null);
-            xw.Formatting = Formatting.Indented;
-            doc.WriteTo(xw);
-            xw.Flush();
-
+            using(MemoryStream ms = new MemoryStream())
+            {
+                using(XmlTextWriter xw = new XmlTextWriter(ms,null))
+                {
+                    xw.Formatting = Formatting.Indented;
+                    doc.WriteTo(xw);
+                    xw.Flush();
+                }
             return ms.ToArray();
+            }
         }
 
         private System.Net.IPAddress GetCallerIP(IOSHttpRequest request)
         {
-            if (!m_Proxy)
-                return request.RemoteIPEndPoint.Address;
+//            if (!m_Proxy)
+//                return request.RemoteIPEndPoint.Address;
 
             // We're behind a proxy
             string xff = "X-Forwarded-For";
@@ -237,7 +240,7 @@ namespace OpenSim.Server.Handlers.MapImage
 
             if (xffValue == null || (xffValue != null && xffValue == string.Empty))
             {
-                m_log.WarnFormat("[MAP IMAGE HANDLER]: No XFF header");
+//                m_log.WarnFormat("[MAP IMAGE HANDLER]: No XFF header");
                 return request.RemoteIPEndPoint.Address;
             }
 

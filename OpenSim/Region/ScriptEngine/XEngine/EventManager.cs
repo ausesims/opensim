@@ -79,7 +79,7 @@ namespace OpenSim.Region.ScriptEngine.XEngine
         }
 
         /// <summary>
-        /// When an object gets paid by an avatar and generates the paid event, 
+        /// When an object gets paid by an avatar and generates the paid event,
         /// this will pipe it to the script engine
         /// </summary>
         /// <param name="objectID">Object ID that got paid</param>
@@ -215,12 +215,25 @@ namespace OpenSim.Region.ScriptEngine.XEngine
                     det));
         }
 
-        public void changed(uint localID, uint change)
+        public void changed(uint localID, uint change, object parameter)
         {
             // Add to queue for all scripts in localID, Object pass change.
-            myScriptEngine.PostObjectEvent(localID, new EventParams(
-                    "changed",new object[] { new LSL_Types.LSLInteger(change) },
+            if(parameter == null)
+            {
+                myScriptEngine.PostObjectEvent(localID, new EventParams(
+                    "changed", new object[] { new LSL_Types.LSLInteger(change) },
                     new DetectParams[0]));
+                return;
+            }
+            if (parameter is UUID)
+            {
+                DetectParams det = new DetectParams();
+                det.Key = (UUID)parameter;
+                myScriptEngine.PostObjectEvent(localID, new EventParams(
+                    "changed", new object[] { new LSL_Types.LSLInteger(change) },
+                    new DetectParams[] { det }));
+                return;
+            }
         }
 
         // state_entry: not processed here
@@ -244,8 +257,7 @@ namespace OpenSim.Region.ScriptEngine.XEngine
             {
                 DetectParams d = new DetectParams();
                 d.Key =detobj.keyUUID;
-                d.Populate(myScriptEngine.World);
-                d.LinkNum = detobj.linkNumber; // do it here since currently linknum is collided part
+                d.Populate(myScriptEngine.World, detobj);
                 det.Add(d);
             }
 
@@ -264,9 +276,7 @@ namespace OpenSim.Region.ScriptEngine.XEngine
             foreach (DetectedObject detobj in col.Colliders)
             {
                 DetectParams d = new DetectParams();
-                d.Key =detobj.keyUUID;
-                d.Populate(myScriptEngine.World);
-                d.LinkNum = detobj.linkNumber; // do it here since currently linknum is collided part
+                d.Populate(myScriptEngine.World, detobj);
                 det.Add(d);
             }
 
@@ -284,9 +294,7 @@ namespace OpenSim.Region.ScriptEngine.XEngine
             foreach (DetectedObject detobj in col.Colliders)
             {
                 DetectParams d = new DetectParams();
-                d.Key =detobj.keyUUID;
-                d.Populate(myScriptEngine.World);
-                d.LinkNum = detobj.linkNumber; // do it here since currently linknum is collided part
+                d.Populate(myScriptEngine.World, detobj);
                 det.Add(d);
             }
 
@@ -304,8 +312,7 @@ namespace OpenSim.Region.ScriptEngine.XEngine
             foreach (DetectedObject detobj in col.Colliders)
             {
                 DetectParams d = new DetectParams();
-                d.Position = detobj.posVector;
-                d.Populate(myScriptEngine.World);
+                d.Populate(myScriptEngine.World, detobj);
                 det.Add(d);
                 myScriptEngine.PostObjectEvent(localID, new EventParams(
                         "land_collision_start",
@@ -322,8 +329,7 @@ namespace OpenSim.Region.ScriptEngine.XEngine
             foreach (DetectedObject detobj in col.Colliders)
             {
                 DetectParams d = new DetectParams();
-                d.Position = detobj.posVector;
-                d.Populate(myScriptEngine.World);
+                d.Populate(myScriptEngine.World,detobj);
                 det.Add(d);
                 myScriptEngine.PostObjectEvent(localID, new EventParams(
                         "land_collision",
@@ -339,8 +345,7 @@ namespace OpenSim.Region.ScriptEngine.XEngine
             foreach (DetectedObject detobj in col.Colliders)
             {
                 DetectParams d = new DetectParams();
-                d.Position = detobj.posVector;
-                d.Populate(myScriptEngine.World);
+                d.Populate(myScriptEngine.World,detobj);
                 det.Add(d);
                 myScriptEngine.PostObjectEvent(localID, new EventParams(
                         "land_collision_end",
@@ -415,10 +420,17 @@ namespace OpenSim.Region.ScriptEngine.XEngine
 
         public void attach(uint localID, UUID itemID, UUID avatar)
         {
-            myScriptEngine.PostObjectEvent(localID, new EventParams(
+            SceneObjectGroup grp = myScriptEngine.World.GetSceneObjectGroup(localID);
+            if(grp == null)
+                return;
+
+            foreach(SceneObjectPart part in grp.Parts)
+            {
+                myScriptEngine.PostObjectEvent(part.LocalId, new EventParams(
                     "attach",new object[] {
                     new LSL_Types.LSLString(avatar.ToString()) },
                     new DetectParams[0]));
+            }
         }
 
         // dataserver: not handled here

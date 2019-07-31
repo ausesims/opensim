@@ -61,12 +61,12 @@ namespace OpenSim.Region.PhysicsModule.ODE
         /// <summary>
         /// ODE contact array to be filled by the collision testing
         /// </summary>
-        d.ContactGeom[] contacts = new d.ContactGeom[5];
+        SafeNativeMethods.ContactGeom[] contacts = new SafeNativeMethods.ContactGeom[5];
 
         /// <summary>
         /// ODE near callback delegate
         /// </summary>
-        private d.NearCallback nearCallback;
+        private SafeNativeMethods.NearCallback nearCallback;
         private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
         private List<ContactResult> m_contactResults = new List<ContactResult>();
 
@@ -75,7 +75,7 @@ namespace OpenSim.Region.PhysicsModule.ODE
         {
             m_scene = pScene;
             nearCallback = near;
-            
+
         }
 
         /// <summary>
@@ -136,7 +136,7 @@ namespace OpenSim.Region.PhysicsModule.ODE
                     ODERayCastRequest[] reqs = m_PendingRequests.ToArray();
                     for (int i = 0; i < reqs.Length; i++)
                     {
-                        if (reqs[i].callbackMethod != null) // quick optimization here, don't raycast 
+                        if (reqs[i].callbackMethod != null) // quick optimization here, don't raycast
                             RayCast(reqs[i]);               // if there isn't anyone to send results
                     }
 
@@ -151,7 +151,7 @@ namespace OpenSim.Region.PhysicsModule.ODE
                     ODERayRequest[] reqs = m_PendingRayRequests.ToArray();
                     for (int i = 0; i < reqs.Length; i++)
                     {
-                        if (reqs[i].callbackMethod != null) // quick optimization here, don't raycast 
+                        if (reqs[i].callbackMethod != null) // quick optimization here, don't raycast
                             RayCast(reqs[i]);               // if there isn't anyone to send results
                     }
 
@@ -179,14 +179,14 @@ namespace OpenSim.Region.PhysicsModule.ODE
                 len = 100f;
 
             // Create the ray
-            IntPtr ray = d.CreateRay(m_scene.space, len);
-            d.GeomRaySet(ray, req.Origin.X, req.Origin.Y, req.Origin.Z, req.Normal.X, req.Normal.Y, req.Normal.Z);
+            IntPtr ray = SafeNativeMethods.CreateRay(m_scene.space, len);
+            SafeNativeMethods.GeomRaySet(ray, req.Origin.X, req.Origin.Y, req.Origin.Z, req.Normal.X, req.Normal.Y, req.Normal.Z);
 
             // Collide test
-            d.SpaceCollide2(m_scene.space, ray, IntPtr.Zero, nearCallback);
+            SafeNativeMethods.SpaceCollide2(m_scene.space, ray, IntPtr.Zero, nearCallback);
 
             // Remove Ray
-            d.GeomDestroy(ray);
+            SafeNativeMethods.GeomDestroy(ray);
 
             // Define default results
             bool hitYN = false;
@@ -230,14 +230,14 @@ namespace OpenSim.Region.PhysicsModule.ODE
                 len = 100f;
 
             // Create the ray
-            IntPtr ray = d.CreateRay(m_scene.space, len);
-            d.GeomRaySet(ray, req.Origin.X, req.Origin.Y, req.Origin.Z, req.Normal.X, req.Normal.Y, req.Normal.Z);
+            IntPtr ray = SafeNativeMethods.CreateRay(m_scene.space, len);
+            SafeNativeMethods.GeomRaySet(ray, req.Origin.X, req.Origin.Y, req.Origin.Z, req.Normal.X, req.Normal.Y, req.Normal.Z);
 
             // Collide test
-            d.SpaceCollide2(m_scene.space, ray, IntPtr.Zero, nearCallback);
+            SafeNativeMethods.SpaceCollide2(m_scene.space, ray, IntPtr.Zero, nearCallback);
 
             // Remove Ray
-            d.GeomDestroy(ray);
+            SafeNativeMethods.GeomDestroy(ray);
 
             // Find closest contact and object.
             lock (m_contactResults)
@@ -247,7 +247,7 @@ namespace OpenSim.Region.PhysicsModule.ODE
                     req.callbackMethod(m_contactResults);
             }
         }
-        
+
         // This is the standard Near.   Uses space AABBs to speed up detection.
         private void near(IntPtr space, IntPtr g1, IntPtr g2)
         {
@@ -258,18 +258,18 @@ namespace OpenSim.Region.PhysicsModule.ODE
 //                return;
 
             // Raytest against AABBs of spaces first, then dig into the spaces it hits for actual geoms.
-            if (d.GeomIsSpace(g1) || d.GeomIsSpace(g2))
+            if (SafeNativeMethods.GeomIsSpace(g1) || SafeNativeMethods.GeomIsSpace(g2))
             {
                 if (g1 == IntPtr.Zero || g2 == IntPtr.Zero)
                     return;
-                
+
                 // Separating static prim geometry spaces.
                 // We'll be calling near recursivly if one
                 // of them is a space to find all of the
                 // contact points in the space
                 try
                 {
-                    d.SpaceCollide2(g1, g2, IntPtr.Zero, nearCallback);
+                    SafeNativeMethods.SpaceCollide2(g1, g2, IntPtr.Zero, nearCallback);
                 }
                 catch (AccessViolationException)
                 {
@@ -290,13 +290,13 @@ namespace OpenSim.Region.PhysicsModule.ODE
             int count = 0;
             try
             {
-                
+
                 if (g1 == g2)
                     return; // Can't collide with yourself
 
                 lock (contacts)
                 {
-                    count = d.Collide(g1, g2, contacts.GetLength(0), contacts, d.ContactGeom.unmanagedSizeOf);
+                    count = SafeNativeMethods.Collide(g1, g2, contacts.GetLength(0), contacts, SafeNativeMethods.ContactGeom.unmanagedSizeOf);
                 }
             }
             catch (SEHException)
@@ -326,7 +326,7 @@ namespace OpenSim.Region.PhysicsModule.ODE
                     if (p1 is OdePrim)
                     {
                         ContactResult collisionresult = new ContactResult();
-                    
+
                         collisionresult.ConsumerID = p1.LocalID;
                         collisionresult.Pos = new Vector3(contacts[i].pos.X, contacts[i].pos.Y, contacts[i].pos.Z);
                         collisionresult.Depth = contacts[i].depth;

@@ -86,7 +86,7 @@ namespace OpenSim.Region.Framework.Scenes
             else
                 EventManager.TriggerOnChatFromWorld(this, args);
         }
-        
+
         protected void SimChat(byte[] message, ChatTypeEnum type, int channel, Vector3 fromPos, string fromName,
                                UUID fromID, bool fromAgent, bool broadcast)
         {
@@ -153,10 +153,23 @@ namespace OpenSim.Region.Framework.Scenes
         /// <param name="remoteClient"></param>
         public void RequestPrim(uint primLocalID, IClientAPI remoteClient)
         {
-            SceneObjectGroup sog = GetGroupByPrim(primLocalID);
+            SceneObjectPart part = GetSceneObjectPart(primLocalID);
+            if (part != null)
+            {
+                SceneObjectGroup sog = part.ParentGroup;
+                if(!sog.IsDeleted)
+                {
+                    PrimUpdateFlags update = PrimUpdateFlags.FullUpdate;
+                    if (sog.RootPart.Shape.MeshFlagEntry)
+                        update = PrimUpdateFlags.FullUpdatewithAnim;
+                    part.SendUpdate(remoteClient, update);
+                }
+            }
 
-            if (sog != null)
-                sog.SendFullUpdateToClient(remoteClient);
+            //SceneObjectGroup sog = GetGroupByPrim(primLocalID);
+
+            //if (sog != null)
+            //sog.SendFullAnimUpdateToClient(remoteClient);
         }
 
         /// <summary>
@@ -164,54 +177,34 @@ namespace OpenSim.Region.Framework.Scenes
         /// </summary>
         /// <param name="primLocalID"></param>
         /// <param name="remoteClient"></param>
-        public void SelectPrim(uint primLocalID, IClientAPI remoteClient)
+        public void SelectPrim(List<uint> primIDs, IClientAPI remoteClient)
         {
-            /*
-                        SceneObjectPart part = GetSceneObjectPart(primLocalID);
-
-                        if (null == part)
-                            return;
-
-                        if (part.IsRoot)
-                        {
-                            SceneObjectGroup sog = part.ParentGroup;
-                            sog.SendPropertiesToClient(remoteClient);
-
-                            // A prim is only tainted if it's allowed to be edited by the person clicking it.
-                            if (Permissions.CanEditObject(sog.UUID, remoteClient.AgentId)
-                                || Permissions.CanMoveObject(sog.UUID, remoteClient.AgentId))
-                            {
-                                sog.IsSelected = true;
-                                EventManager.TriggerParcelPrimCountTainted();
-                            }
-                        }
-                        else
-                        {
-                             part.SendPropertiesToClient(remoteClient);
-                        }
-             */
-            SceneObjectPart part = GetSceneObjectPart(primLocalID);
-
-            if (null == part)
-                return;
-
-            SceneObjectGroup sog = part.ParentGroup;
-            if (sog == null)
-                return;
-
-            part.SendPropertiesToClient(remoteClient);
-
-            // waste of time because properties do not send prim flags as they should
-            // if a friend got or lost edit rights after login, a full update is needed
-            if(sog.OwnerID != remoteClient.AgentId)
-                part.SendFullUpdate(remoteClient);
-
-            // A prim is only tainted if it's allowed to be edited by the person clicking it.
-            if (Permissions.CanEditObject(sog.UUID, remoteClient.AgentId)
-                || Permissions.CanMoveObject(sog.UUID, remoteClient.AgentId))
+            foreach(uint primLocalID in primIDs)
             {
-                part.IsSelected = true;
-                EventManager.TriggerParcelPrimCountTainted();
+                SceneObjectPart part = GetSceneObjectPart(primLocalID);
+
+                if (part == null)
+                    continue;
+
+                SceneObjectGroup sog = part.ParentGroup;
+                if (sog == null)
+                    continue;
+
+                // waste of time because properties do not send prim flags as they should
+                // if a friend got or lost edit rights after login, a full update is needed
+                if(sog.OwnerID != remoteClient.AgentId)
+                    part.SendFullUpdate(remoteClient);
+
+                // A prim is only tainted if it's allowed to be edited by the person clicking it.
+                if (Permissions.CanChangeSelectedState(part, (ScenePresence)remoteClient.SceneAgent))
+                {
+                    bool oldsel = part.IsSelected;
+                    part.IsSelected = true;
+                    if(!oldsel)
+                        EventManager.TriggerParcelPrimCountTainted();
+                }
+
+                part.SendPropertiesToClient(remoteClient);
             }
         }
 
@@ -233,13 +226,13 @@ namespace OpenSim.Region.Framework.Scenes
             if (groupID != UUID.Zero)
             {
                 GroupMembershipData gmd = m_groupsModule.GetMembershipData(groupID, remoteClient.AgentId);
-    
+
                 if (gmd == null)
                 {
 //                    m_log.WarnFormat(
 //                        "[GROUPS]: User {0} is not a member of group {1} so they can't update {2} to this group",
 //                        remoteClient.Name, GroupID, objectLocalID);
-    
+
                     return;
                 }
             }
@@ -250,6 +243,7 @@ namespace OpenSim.Region.Framework.Scenes
                 if (so.OwnerID == remoteClient.AgentId)
                 {
                     so.SetGroup(groupID, remoteClient);
+                    EventManager.TriggerParcelPrimCountTainted();
                 }
             }
         }
@@ -264,37 +258,6 @@ namespace OpenSim.Region.Framework.Scenes
             SceneObjectPart part = GetSceneObjectPart(primLocalID);
             if (part == null)
                 return;
- /*           
-            // A deselect packet contains all the local prims being deselected.  However, since selection is still
-            // group based we only want the root prim to trigger a full update - otherwise on objects with many prims
-            // we end up sending many duplicate ObjectUpdates
-            if (part.ParentGroup.RootPart.LocalId != part.LocalId)
-                return;
-
-            // This is wrong, wrong, wrong. Selection should not be
-            // handled by group, but by prim. Legacy cruft.
-            // TODO: Make selection flagging per prim!
-            //
-            if (Permissions.CanEditObject(part.ParentGroup.UUID, remoteClient.AgentId)
-                || Permissions.CanMoveObject(part.ParentGroup.UUID, remoteClient.AgentId))
-                part.ParentGroup.IsSelected = false;
-            
-            part.ParentGroup.ScheduleGroupForFullUpdate();
-
-            // If it's not an attachment, and we are allowed to move it,
-            // then we might have done so. If we moved across a parcel
-            // boundary, we will need to recount prims on the parcels.
-            // For attachments, that makes no sense.
-            //
-            if (!part.ParentGroup.IsAttachment)
-            {
-                if (Permissions.CanEditObject(
-                        part.UUID, remoteClient.AgentId) 
-                        || Permissions.CanMoveObject(
-                        part.UUID, remoteClient.AgentId))
-                    EventManager.TriggerParcelPrimCountTainted();
-            }
-  */
 
             bool oldgprSelect = part.ParentGroup.IsSelected;
 
@@ -302,8 +265,7 @@ namespace OpenSim.Region.Framework.Scenes
             // handled by group, but by prim. Legacy cruft.
             // TODO: Make selection flagging per prim!
             //
-            if (Permissions.CanEditObject(part.ParentGroup.UUID, remoteClient.AgentId)
-                || Permissions.CanMoveObject(part.ParentGroup.UUID, remoteClient.AgentId))
+            if (Permissions.CanChangeSelectedState(part, (ScenePresence)remoteClient.SceneAgent))
             {
                 part.IsSelected = false;
                 if (!part.ParentGroup.IsAttachment && oldgprSelect != part.ParentGroup.IsSelected)
@@ -311,14 +273,14 @@ namespace OpenSim.Region.Framework.Scenes
 
                 // restore targetOmega
                 if (part.AngularVelocity != Vector3.Zero)
-                    part.ScheduleTerseUpdate();     
+                    part.ScheduleTerseUpdate();
             }
         }
 
-        public virtual void ProcessMoneyTransferRequest(UUID source, UUID destination, int amount, 
+        public virtual void ProcessMoneyTransferRequest(UUID source, UUID destination, int amount,
                                                         int transactiontype, string description)
         {
-            EventManager.MoneyTransferArgs args = new EventManager.MoneyTransferArgs(source, destination, amount, 
+            EventManager.MoneyTransferArgs args = new EventManager.MoneyTransferArgs(source, destination, amount,
                                                                                      transactiontype, description);
 
             EventManager.TriggerMoneyTransfer(this, args);
@@ -327,8 +289,8 @@ namespace OpenSim.Region.Framework.Scenes
         public virtual void ProcessParcelBuy(UUID agentId, UUID groupId, bool final, bool groupOwned,
                 bool removeContribution, int parcelLocalID, int parcelArea, int parcelPrice, bool authenticated)
         {
-            EventManager.LandBuyArgs args = new EventManager.LandBuyArgs(agentId, groupId, final, groupOwned, 
-                                                                         removeContribution, parcelLocalID, parcelArea, 
+            EventManager.LandBuyArgs args = new EventManager.LandBuyArgs(agentId, groupId, final, groupOwned,
+                                                                         removeContribution, parcelLocalID, parcelArea,
                                                                          parcelPrice, authenticated);
 
             // First, allow all validators a stab at it
@@ -341,7 +303,7 @@ namespace OpenSim.Region.Framework.Scenes
         public virtual void ProcessObjectGrab(uint localID, Vector3 offsetPos, IClientAPI remoteClient, List<SurfaceTouchEventArgs> surfaceArgs)
         {
             SceneObjectPart part = GetSceneObjectPart(localID);
-            
+
             if (part == null)
                 return;
 
@@ -354,19 +316,17 @@ namespace OpenSim.Region.Framework.Scenes
             // Currently only grab/touch for the single prim
             // the client handles rez correctly
             obj.ObjectGrabHandler(localID, offsetPos, remoteClient);
-    
+
             // If the touched prim handles touches, deliver it
-            // If not, deliver to root prim
             if ((part.ScriptEvents & scriptEvents.touch_start) != 0)
-                EventManager.TriggerObjectGrab(part.LocalId, 0, part.OffsetPosition, remoteClient, surfaceArg);
+                EventManager.TriggerObjectGrab(part.LocalId, 0, offsetPos, remoteClient, surfaceArg);
 
             // Deliver to the root prim if the touched prim doesn't handle touches
-            // or if we're meant to pass on touches anyway. Don't send to root prim
-            // if prim touched is the root prim as we just did it
+            // or if we're meant to pass on touches anyway.
             if (((part.ScriptEvents & scriptEvents.touch_start) == 0) ||
-                (part.PassTouches && (part.LocalId != obj.RootPart.LocalId))) 
+                (part.PassTouches && (part.LocalId != obj.RootPart.LocalId)))
             {
-                EventManager.TriggerObjectGrab(obj.RootPart.LocalId, part.LocalId, part.OffsetPosition, remoteClient, surfaceArg);
+                EventManager.TriggerObjectGrab(obj.RootPart.LocalId, part.LocalId, offsetPos, remoteClient, surfaceArg);
             }
         }
 
@@ -377,23 +337,37 @@ namespace OpenSim.Region.Framework.Scenes
             if (part == null)
                 return;
 
-            SceneObjectGroup obj = part.ParentGroup;
+            SceneObjectGroup group = part.ParentGroup;
+            if(group == null || group.IsDeleted)
+                return;
+
+            if (Permissions.CanMoveObject(group, remoteClient))// && PermissionsMngr.)
+            {
+                group.GrabMovement(objectID, offset, pos, remoteClient);
+            }
+
+            // This is outside the above permissions condition
+            // so that if the object is locked the client moving the object
+            // get's it's position on the simulator even if it was the same as before
+            // This keeps the moving user's client in sync with the rest of the world.
+            group.SendGroupTerseUpdate();
 
             SurfaceTouchEventArgs surfaceArg = null;
             if (surfaceArgs != null && surfaceArgs.Count > 0)
                 surfaceArg = surfaceArgs[0];
 
+            Vector3 grabOffset = pos - part.AbsolutePosition;
             // If the touched prim handles touches, deliver it
-            // If not, deliver to root prim
             if ((part.ScriptEvents & scriptEvents.touch) != 0)
-                EventManager.TriggerObjectGrabbing(part.LocalId, 0, part.OffsetPosition, remoteClient, surfaceArg);
+//                EventManager.TriggerObjectGrabbing(part.LocalId, 0, part.OffsetPosition, remoteClient, surfaceArg);
+                EventManager.TriggerObjectGrabbing(part.LocalId, 0, grabOffset, remoteClient, surfaceArg);
             // Deliver to the root prim if the touched prim doesn't handle touches
-            // or if we're meant to pass on touches anyway. Don't send to root prim
-            // if prim touched is the root prim as we just did it
+            // or if we're meant to pass on touches anyway.
             if (((part.ScriptEvents & scriptEvents.touch) == 0) ||
-                (part.PassTouches && (part.LocalId != obj.RootPart.LocalId)))
+                (part.PassTouches && (part.LocalId != group.RootPart.LocalId)))
             {
-                EventManager.TriggerObjectGrabbing(obj.RootPart.LocalId, part.LocalId, part.OffsetPosition, remoteClient, surfaceArg);
+//                EventManager.TriggerObjectGrabbing(group.RootPart.LocalId, part.LocalId, part.OffsetPosition, remoteClient, surfaceArg);
+                EventManager.TriggerObjectGrabbing(group.RootPart.LocalId, part.LocalId, grabOffset, remoteClient, surfaceArg);
             }
         }
 
@@ -403,18 +377,77 @@ namespace OpenSim.Region.Framework.Scenes
             if (part == null)
                 return;
 
-            SceneObjectGroup obj = part.ParentGroup;
+            SceneObjectGroup grp = part.ParentGroup;
 
             SurfaceTouchEventArgs surfaceArg = null;
             if (surfaceArgs != null && surfaceArgs.Count > 0)
                 surfaceArg = surfaceArgs[0];
 
             // If the touched prim handles touches, deliver it
-            // If not, deliver to root prim
             if ((part.ScriptEvents & scriptEvents.touch_end) != 0)
                 EventManager.TriggerObjectDeGrab(part.LocalId, 0, remoteClient, surfaceArg);
-            else
-                EventManager.TriggerObjectDeGrab(obj.RootPart.LocalId, part.LocalId, remoteClient, surfaceArg);
+            // if not or PassTouchs, send it also to root.
+            if (((part.ScriptEvents & scriptEvents.touch_end) == 0) ||
+                (part.PassTouches && (part.LocalId != grp.RootPart.LocalId)))
+            {
+                EventManager.TriggerObjectDeGrab(grp.RootPart.LocalId, part.LocalId, remoteClient, surfaceArg);
+            }
+        }
+
+        /// <summary>
+        /// Start spinning the given object
+        /// </summary>
+        /// <param name="objectID"></param>
+        /// <param name="rotation"></param>
+        /// <param name="remoteClient"></param>
+        public virtual void ProcessSpinStart(UUID objectID, IClientAPI remoteClient)
+        {
+            SceneObjectGroup group = GetGroupByPrim(objectID);
+            if (group != null)
+            {
+                if (Permissions.CanMoveObject(group, remoteClient))// && PermissionsMngr.)
+                {
+                    group.SpinStart(remoteClient);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Spin the given object
+        /// </summary>
+        /// <param name="objectID"></param>
+        /// <param name="rotation"></param>
+        /// <param name="remoteClient"></param>
+        public virtual void ProcessSpinObject(UUID objectID, Quaternion rotation, IClientAPI remoteClient)
+        {
+            SceneObjectGroup group = GetGroupByPrim(objectID);
+            if (group != null)
+            {
+                if (Permissions.CanMoveObject(group, remoteClient))// && PermissionsMngr.)
+                {
+                    group.SpinMovement(rotation, remoteClient);
+                }
+                // This is outside the above permissions condition
+                // so that if the object is locked the client moving the object
+                // get's it's position on the simulator even if it was the same as before
+                // This keeps the moving user's client in sync with the rest of the world.
+                group.SendGroupTerseUpdate();
+            }
+        }
+
+        public virtual void ProcessSpinObjectStop(UUID objectID, IClientAPI remoteClient)
+        {
+/* no op for now
+            SceneObjectGroup group = GetGroupByPrim(objectID);
+            if (group != null)
+            {
+                if (Permissions.CanMoveObject(group.UUID, remoteClient.AgentId))// && PermissionsMngr.)
+                {
+//                    group.SpinMovement(rotation, remoteClient);
+                }
+                group.SendGroupTerseUpdate();
+            }
+*/
         }
 
         public void ProcessScriptReset(IClientAPI remoteClient, UUID objectID,
@@ -457,7 +490,7 @@ namespace OpenSim.Region.Framework.Scenes
                     if (sp.ControllingClient.AgentId != remoteClient.AgentId)
                     {
                         if (!discardableEffects ||
-                            (discardableEffects && ShouldSendDiscardableEffect(remoteClient, sp)))
+                           (discardableEffects && ShouldSendDiscardableEffect(remoteClient, sp)))
                         {
                             //m_log.DebugFormat("[YYY]: Sending to {0}", sp.UUID);
                             sp.ControllingClient.SendViewerEffect(effectBlockArray);
@@ -467,10 +500,10 @@ namespace OpenSim.Region.Framework.Scenes
                     }
                 });
         }
-        
+
         private bool ShouldSendDiscardableEffect(IClientAPI thisClient, ScenePresence other)
         {
-            return Vector3.Distance(other.CameraPosition, thisClient.SceneAgent.AbsolutePosition) < 10;
+            return Vector3.DistanceSquared(other.CameraPosition, thisClient.SceneAgent.AbsolutePosition) < 100;
         }
 
         private class DescendentsRequestData
@@ -562,7 +595,7 @@ namespace OpenSim.Region.Framework.Scenes
             {
                 m_log.Error(
                     string.Format(
-                        "[AGENT INVENTORY]: Error in SendInventoryAsync() for {0} with folder ID {1}.  Exception  ", e));
+                        "[AGENT INVENTORY]: Error in SendInventoryAsync() for {0} with folder ID {1}.  Exception  ", e, folderID));
             }
             Thread.Sleep(20);
         }
@@ -587,7 +620,7 @@ namespace OpenSim.Region.Framework.Scenes
                 m_descendentsRequestProcessing = false;
             }
         }
-        
+
         /// <summary>
         /// Handle an inventory folder creation request from the client.
         /// </summary>
@@ -627,8 +660,7 @@ namespace OpenSim.Region.Framework.Scenes
 //            m_log.DebugFormat(
 //                "[AGENT INVENTORY]: Updating inventory folder {0} {1} for {2} {3}", folderID, name, remoteClient.Name, remoteClient.AgentId);
 
-            InventoryFolderBase folder = new InventoryFolderBase(folderID, remoteClient.AgentId);
-            folder = InventoryService.GetFolder(folder);
+            InventoryFolderBase folder = InventoryService.GetFolder(remoteClient.AgentId, folderID);
             if (folder != null)
             {
                 folder.Name = name;
@@ -642,11 +674,10 @@ namespace OpenSim.Region.Framework.Scenes
                 }
             }
         }
-        
+
         public void HandleMoveInventoryFolder(IClientAPI remoteClient, UUID folderID, UUID parentID)
         {
-            InventoryFolderBase folder = new InventoryFolderBase(folderID, remoteClient.AgentId);
-            folder = InventoryService.GetFolder(folder);
+            InventoryFolderBase folder = InventoryService.GetFolder(remoteClient.AgentId, folderID);
             if (folder != null)
             {
                 folder.ParentID = parentID;
@@ -685,10 +716,17 @@ namespace OpenSim.Region.Framework.Scenes
         {
             InventoryFolderBase folder = new InventoryFolderBase(folderID, userID);
 
-            if (InventoryService.PurgeFolder(folder))
-                m_log.DebugFormat("[AGENT INVENTORY]: folder {0} purged successfully", folderID);
-            else
-                m_log.WarnFormat("[AGENT INVENTORY]: could not purge folder {0}", folderID);
+           try
+            {
+                if (InventoryService.PurgeFolder(folder))
+                    m_log.DebugFormat("[AGENT INVENTORY]: folder {0} purged successfully", folderID);
+                else
+                    m_log.WarnFormat("[AGENT INVENTORY]: could not purge folder {0}", folderID);
+            }
+            catch (Exception e)
+            {
+                m_log.WarnFormat("[AGENT INVENTORY]: Exception on async purge folder for user {0}: {1}", userID, e.Message);
+            }
         }
 
         private void PurgeFolderCompleted(IAsyncResult iar)

@@ -39,7 +39,6 @@ namespace OpenSim.Region.CoreModules.World.Land
 
         //Land types set with flags in ParcelOverlay.
         //Only one of these can be used.
-        public const float BAN_LINE_SAFETY_HIEGHT = 100;
 
         //RequestResults (I think these are right, they seem to work):
         public const int LAND_RESULT_MULTIPLE = 1; // The request they made contained more than a single peice of land
@@ -50,7 +49,7 @@ namespace OpenSim.Region.CoreModules.World.Land
         public const int LAND_SELECT_OBJECTS_GROUP = 4;
         public const int LAND_SELECT_OBJECTS_OTHER = 8;
 
-        
+
         public const byte LAND_TYPE_PUBLIC = 0; //Equals 00000000
         // types 1 to 7 are exclusive
         public const byte LAND_TYPE_OWNED_BY_OTHER = 1; //Equals 00000001
@@ -74,12 +73,30 @@ namespace OpenSim.Region.CoreModules.World.Land
         #endregion
 
         private readonly Scene m_scene;
-        private readonly LandManagementModule m_landManagementModule;        
+        private readonly LandManagementModule m_landManagementModule;
+
+        private float m_BanLineSafeHeight = 100.0f;
+        public float BanLineSafeHeight
+        {
+            get
+            {
+                return m_BanLineSafeHeight;
+            }
+            private set
+            {
+                if (value >= 20f && value <= 5000f)
+                    m_BanLineSafeHeight = value;
+                else
+                    m_BanLineSafeHeight = 100.0f;
+            }
+        }
 
         public LandChannel(Scene scene, LandManagementModule landManagementMod)
         {
             m_scene = scene;
             m_landManagementModule = landManagementMod;
+            if(landManagementMod != null)
+                m_BanLineSafeHeight = landManagementMod.BanLineSafeHeight;
         }
 
         #region ILandChannel Members
@@ -90,7 +107,7 @@ namespace OpenSim.Region.CoreModules.World.Land
             {
                 return m_landManagementModule.GetLandObject(x_float, y_float);
             }
-            
+
             ILandObject obj = new LandObject(UUID.Zero, false, m_scene);
             obj.LandData.Name = "NO LAND";
             return obj;
@@ -101,6 +118,15 @@ namespace OpenSim.Region.CoreModules.World.Land
             if (m_landManagementModule != null)
             {
                 return m_landManagementModule.GetLandObject(localID);
+            }
+            return null;
+        }
+
+        public ILandObject GetLandObject(UUID GlobalID)
+        {
+            if (m_landManagementModule != null)
+            {
+                return m_landManagementModule.GetLandObject(GlobalID);
             }
             return null;
         }
@@ -116,7 +142,7 @@ namespace OpenSim.Region.CoreModules.World.Land
             {
                 return m_landManagementModule.GetLandObject(x, y);
             }
-            
+
             ILandObject obj = new LandObject(UUID.Zero, false, m_scene);
             obj.LandData.Name = "NO LAND";
             return obj;
@@ -131,7 +157,7 @@ namespace OpenSim.Region.CoreModules.World.Land
 
             return new List<ILandObject>();
         }
-        
+
         public void Clear(bool setupDefaultParcel)
         {
             if (m_landManagementModule != null)
@@ -166,6 +192,14 @@ namespace OpenSim.Region.CoreModules.World.Land
             }
         }
 
+        public void SendParcelsOverlay(IClientAPI client)
+        {
+            if (m_landManagementModule != null)
+            {
+                m_landManagementModule.SendParcelOverlay(client);
+            }
+        }
+
         public void Join(int start_x, int start_y, int end_x, int end_y, UUID attempting_user_id)
         {
             if (m_landManagementModule != null)
@@ -181,7 +215,7 @@ namespace OpenSim.Region.CoreModules.World.Land
                 m_landManagementModule.Subdivide(start_x, start_y, end_x, end_y, attempting_user_id);
             }
         }
-        
+
         public void ReturnObjectsInParcel(int localID, uint returnType, UUID[] agentIDs, UUID[] taskIDs, IClientAPI remoteClient)
         {
             if (m_landManagementModule != null)
@@ -213,11 +247,11 @@ namespace OpenSim.Region.CoreModules.World.Land
                 m_landManagementModule.setParcelOtherCleanTime(remoteClient, localID, otherCleanTime);
             }
         }
-        public void sendClientInitialLandInfo(IClientAPI remoteClient)
+        public void sendClientInitialLandInfo(IClientAPI remoteClient, bool overlay)
         {
             if (m_landManagementModule != null)
             {
-                m_landManagementModule.sendClientInitialLandInfo(remoteClient);
+                m_landManagementModule.sendClientInitialLandInfo(remoteClient, overlay);
             }
         }
         #endregion

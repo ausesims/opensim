@@ -35,7 +35,7 @@ using OpenSim.Services.Interfaces;
 
 namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Presence
 {
-    public class PresenceDetector 
+    public class PresenceDetector
     {
 //        private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
@@ -50,7 +50,6 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Presence
         public void AddRegion(Scene scene)
         {
             scene.EventManager.OnMakeRootAgent += OnMakeRootAgent;
-            scene.EventManager.OnNewClient += OnNewClient;
 
             m_PresenceService.LogoutRegionAgents(scene.RegionInfo.RegionID);
 
@@ -61,21 +60,33 @@ namespace OpenSim.Region.CoreModules.ServiceConnectorsOut.Presence
         public void RemoveRegion(Scene scene)
         {
             scene.EventManager.OnMakeRootAgent -= OnMakeRootAgent;
-            scene.EventManager.OnNewClient -= OnNewClient;
 
             m_PresenceService.LogoutRegionAgents(scene.RegionInfo.RegionID);
         }
 
         public void OnMakeRootAgent(ScenePresence sp)
         {
+            if (sp.IsNPC)
+                return;
+
+            sp.ControllingClient.OnConnectionClosed += OnConnectionClose;
+
+            if (sp.m_gotCrossUpdate)
+            {
+                Util.FireAndForget(delegate
+                {
+                    DoOnMakeRootAgent(sp);
+                }, null, "PresenceDetector_MakeRoot");
+            }
+            else
+                DoOnMakeRootAgent(sp);
+        }
+
+        public void DoOnMakeRootAgent(ScenePresence sp)
+        {
 //            m_log.DebugFormat("[PRESENCE DETECTOR]: Detected root presence {0} in {1}", sp.UUID, sp.Scene.RegionInfo.RegionName);
             if (sp.PresenceType != PresenceType.Npc)
                 m_PresenceService.ReportAgent(sp.ControllingClient.SessionId, sp.Scene.RegionInfo.RegionID);
-        }
-
-        public void OnNewClient(IClientAPI client)
-        {
-            client.OnConnectionClosed += OnConnectionClose;
         }
 
         public void OnConnectionClose(IClientAPI client)

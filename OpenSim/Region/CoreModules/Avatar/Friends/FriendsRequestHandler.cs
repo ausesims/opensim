@@ -42,22 +42,27 @@ using log4net;
 
 namespace OpenSim.Region.CoreModules.Avatar.Friends
 {
-    public class FriendsRequestHandler : BaseStreamHandlerBasicDOSProtector
+    
+//    public class FriendsRequestHandler : BaseStreamHandlerBasicDOSProtector
+    public class FriendsRequestHandler : BaseStreamHandler
     {
         private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
         private FriendsModule m_FriendsModule;
-
+        /*
+                public FriendsRequestHandler(FriendsModule fmodule)
+                        : base("POST", "/friends", new BasicDosProtectorOptions()
+                                                  {
+                                                      AllowXForwardedFor = true,
+                                                      ForgetTimeSpan = TimeSpan.FromMinutes(2),
+                                                      MaxRequestsInTimeframe = 20,
+                                                      ReportingName = "FRIENDSDOSPROTECTOR",
+                                                      RequestTimeSpan = TimeSpan.FromSeconds(5),
+                                                      ThrottledAction = BasicDOSProtector.ThrottleAction.DoThrottledMethod
+                                                  })
+        */
         public FriendsRequestHandler(FriendsModule fmodule)
-                : base("POST", "/friends", new BasicDosProtectorOptions()
-                                          {
-                                              AllowXForwardedFor = true,
-                                              ForgetTimeSpan = TimeSpan.FromMinutes(2),
-                                              MaxRequestsInTimeframe = 20,
-                                              ReportingName = "FRIENDSDOSPROTECTOR",
-                                              RequestTimeSpan = TimeSpan.FromSeconds(5),
-                                              ThrottledAction = BasicDOSProtector.ThrottleAction.DoThrottledMethod
-                                          })
+                : base("POST", "/friends")
         {
             m_FriendsModule = fmodule;
         }
@@ -65,9 +70,10 @@ namespace OpenSim.Region.CoreModules.Avatar.Friends
         protected override byte[] ProcessRequest(
             string path, Stream requestData, IOSHttpRequest httpRequest, IOSHttpResponse httpResponse)
         {
-            StreamReader sr = new StreamReader(requestData);
-            string body = sr.ReadToEnd();
-            sr.Close();
+            string body;
+            using(StreamReader sr = new StreamReader(requestData))
+                body = sr.ReadToEnd();
+
             body = body.Trim();
 
             //m_log.DebugFormat("[XXX]: query String: {0}", body);
@@ -127,7 +133,7 @@ namespace OpenSim.Region.CoreModules.Avatar.Friends
             UserAccount account = m_FriendsModule.UserAccountService.GetUserAccount(UUID.Zero, fromID);
             string name = (account == null) ? "Unknown" : account.FirstName + " " + account.LastName;
 
-            GridInstantMessage im = new GridInstantMessage(m_FriendsModule.Scene, fromID, name, toID, 
+            GridInstantMessage im = new GridInstantMessage(m_FriendsModule.Scene, fromID, name, toID,
                 (byte)InstantMessageDialog.FriendshipOffered, message, false, Vector3.Zero);
 
             // !! HACK

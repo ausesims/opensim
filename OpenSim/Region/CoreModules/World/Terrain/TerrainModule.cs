@@ -218,7 +218,7 @@ namespace OpenSim.Region.CoreModules.World.Terrain
             if (terrainConfig != null)
             {
                 m_InitialTerrain = terrainConfig.GetString("InitialTerrain", m_InitialTerrain);
-                m_sendTerrainUpdatesByViewDistance = 
+                m_sendTerrainUpdatesByViewDistance =
                     terrainConfig.GetBoolean(
                         "SendTerrainUpdatesByViewDistance",m_sendTerrainUpdatesByViewDistance);
             }
@@ -231,20 +231,27 @@ namespace OpenSim.Region.CoreModules.World.Terrain
             // Install terrain module in the simulator
             lock(m_scene)
             {
+                if(m_scene.Bakedmap != null)
+                {
+                    m_baked = m_scene.Bakedmap;
+                }
                 if (m_scene.Heightmap == null)
                 {
-                    m_channel = new TerrainChannel(m_InitialTerrain, (int)m_scene.RegionInfo.RegionSizeX,
-                                                                     (int)m_scene.RegionInfo.RegionSizeY,
-                                                                     (int)m_scene.RegionInfo.RegionSizeZ);
+                    if(m_baked != null)
+                        m_channel = m_baked.MakeCopy();
+                    else
+                        m_channel = new TerrainChannel(m_InitialTerrain,
+                                                (int)m_scene.RegionInfo.RegionSizeX,
+                                                (int)m_scene.RegionInfo.RegionSizeY,
+                                                (int)m_scene.RegionInfo.RegionSizeZ);
                     m_scene.Heightmap = m_channel;
-
-                    UpdateBakedMap();
                 }
                 else
                 {
                     m_channel = m_scene.Heightmap;
-                    UpdateBakedMap();
                 }
+                if(m_baked == null)
+                    UpdateBakedMap();
 
                 m_scene.RegisterModuleInterface<ITerrainModule>(this);
                 m_scene.EventManager.OnNewClient += EventManager_OnNewClient;
@@ -456,7 +463,7 @@ namespace OpenSim.Region.CoreModules.World.Terrain
             throw new TerrainException(String.Format("unable to load heightmap from file {0}: no loader available for that format", filename));
         }
 
-        public void LoadFromStream(string filename, Vector3 displacement, 
+        public void LoadFromStream(string filename, Vector3 displacement,
                                     float rotationDegrees, Vector2 boundingOrigin, Vector2 boundingSize, Stream stream)
         {
             foreach (KeyValuePair<string, ITerrainLoader> loader in m_loaders)
@@ -585,7 +592,7 @@ namespace OpenSim.Region.CoreModules.World.Terrain
             else
             {
                 // The traditional way is to call into the protocol stack to send them all.
-                pClient.SendLayerData(new float[10]);
+                pClient.SendLayerData();
             }
         }
 
@@ -717,13 +724,15 @@ namespace OpenSim.Region.CoreModules.World.Terrain
 
         /// <summary>
         /// Saves the current state of the region into the baked map buffer.
-        
+
         /// </summary>
         public void UpdateBakedMap()
         {
             m_baked = m_channel.MakeCopy();
             m_painteffects[StandardTerrainEffects.Revert] = new RevertSphere(m_baked);
             m_floodeffects[StandardTerrainEffects.Revert] = new RevertArea(m_baked);
+            m_scene.Bakedmap = m_baked;
+            m_scene.SaveBakedTerrain();
         }
 
         /// <summary>
@@ -816,7 +825,7 @@ namespace OpenSim.Region.CoreModules.World.Terrain
                 m_scene.RegionInfo.RegionName, filename, m_supportFileExtensionsForTileSave);
         }
 
-        
+
         /// <summary>
         /// This is used to check to see of any of the terrain is tainted and, if so, schedule
         /// updates for all the presences.
@@ -936,7 +945,7 @@ namespace OpenSim.Region.CoreModules.World.Terrain
             lock (m_perClientPatchUpdates)
                 m_perClientPatchUpdates.Remove(client);
         }
-        
+
         /// <summary>
         /// Scan over changes in the terrain and limit height changes. This enforces the
         ///     non-estate owner limits on rate of terrain editting.
@@ -950,6 +959,27 @@ namespace OpenSim.Region.CoreModules.World.Terrain
             for (int x = 0; x < terrData.SizeX; x += Constants.TerrainPatchSize)
             {
                 for (int y = 0; y < terrData.SizeY; y += Constants.TerrainPatchSize)
+                {
+                    if (terrData.IsTaintedAt(x, y, false /* clearOnTest */))
+                   {
+                        // If we should respect the estate settings then
+                        //     fixup and height deltas that don't respect them.
+                        // Note that LimitChannelChanges() modifies the TerrainChannel with the limited height values.
+                        wasLimited |= LimitChannelChanges(terrData, x, y);
+                    }
+                }
+            }
+            return wasLimited;
+        }
+
+        private bool EnforceEstateLimits(int startX, int startY, int endX, int endY)
+        {
+            TerrainData terrData = m_channel.GetTerrainData();
+
+            bool wasLimited = false;
+            for (int x = startX; x <= endX; x += Constants.TerrainPatchSize)
+            {
+                for (int y = startX; y <= endY; y += Constants.TerrainPatchSize)
                 {
                     if (terrData.IsTaintedAt(x, y, false /* clearOnTest */))
                    {
@@ -1036,13 +1066,11 @@ namespace OpenSim.Region.CoreModules.World.Terrain
                 // Legacy update sending where the update is sent out as soon as noticed
                 // We know the actual terrain data that is passed is ignored so this passes a dummy heightmap.
                 //float[] heightMap = terrData.GetFloatsSerialized();
-                float[] heightMap = new float[10];
+                int[] map = new int[]{ x / Constants.TerrainPatchSize, y / Constants.TerrainPatchSize };
                 m_scene.ForEachClient(
                     delegate (IClientAPI controller)
                     {
-                        controller.SendLayerData(x / Constants.TerrainPatchSize,
-                                                 y / Constants.TerrainPatchSize,
-                                                 heightMap);
+                        controller.SendLayerData(map);
                     }
                 );
             }
@@ -1101,16 +1129,14 @@ namespace OpenSim.Region.CoreModules.World.Terrain
                                 }
                                 */
 
-                                int[] xPieces = new int[toSend.Count];
-                                int[] yPieces = new int[toSend.Count];
-                                float[] patchPieces = new float[toSend.Count * 2];
+                                int[] patchPieces = new int[toSend.Count * 2];
                                 int pieceIndex = 0;
                                 foreach (PatchesToSend pts in toSend)
                                 {
                                     patchPieces[pieceIndex++] = pts.PatchX;
                                     patchPieces[pieceIndex++] = pts.PatchY;
                                 }
-                                pups.Presence.ControllingClient.SendLayerData(-toSend.Count, 0, patchPieces);
+                                pups.Presence.ControllingClient.SendLayerData(patchPieces);
                             }
                             if (pups.sendAll && toSend.Count < 1024)
                                 SendAllModifiedPatchs(pups);
@@ -1178,16 +1204,14 @@ namespace OpenSim.Region.CoreModules.World.Terrain
             npatchs = patchs.Count;
             if (npatchs > 0)
             {
-                int[] xPieces = new int[npatchs];
-                int[] yPieces = new int[npatchs];
-                float[] patchPieces = new float[npatchs * 2];
+                int[] patchPieces = new int[npatchs * 2];
                 int pieceIndex = 0;
                 foreach (PatchesToSend pts in patchs)
                 {
                     patchPieces[pieceIndex++] = pts.PatchX;
                     patchPieces[pieceIndex++] = pts.PatchY;
                 }
-                pups.Presence.ControllingClient.SendLayerData(-npatchs, 0, patchPieces);
+                pups.Presence.ControllingClient.SendLayerData(patchPieces);
             }
         }
 
@@ -1284,7 +1308,7 @@ namespace OpenSim.Region.CoreModules.World.Terrain
                 }
             }
             return ret;
-        }   
+        }
 
         private void client_OnModifyTerrain(UUID user, float height, float seconds, byte size, byte action,
                                             float north, float west, float south, float east, UUID agentId)
@@ -1341,7 +1365,7 @@ namespace OpenSim.Region.CoreModules.World.Terrain
 
                         //block changes outside estate limits
                         if (!god)
-                            EnforceEstateLimits();
+                            EnforceEstateLimits(startX, endX, startY, endY);
                     }
                 }
                 else
@@ -1404,7 +1428,7 @@ namespace OpenSim.Region.CoreModules.World.Terrain
 
                         //block changes outside estate limits
                         if (!god)
-                            EnforceEstateLimits();
+                            EnforceEstateLimits(startX, endX, startY, endY);
                     }
                 }
                 else
@@ -1429,8 +1453,7 @@ namespace OpenSim.Region.CoreModules.World.Terrain
         {
             //m_log.Debug("Terrain packet unacked, resending patch: " + patchX + " , " + patchY);
             // SendLayerData does not use the heightmap parameter. This kludge is so as to not change IClientAPI.
-            float[] heightMap = new float[10];
-            client.SendLayerData(patchX, patchY, heightMap);
+            client.SendLayerData(new int[]{patchX, patchY});
         }
 
         private void StoreUndoState()

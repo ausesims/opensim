@@ -46,13 +46,13 @@ namespace OpenSim.Region.CoreModules.World.Archiver
         /// <value>
         /// Post a message to the log every x assets as a progress bar
         /// </value>
-        protected static int LOG_ASSET_LOAD_NOTIFICATION_INTERVAL = 50;
+        protected static int LOG_ASSET_LOAD_NOTIFICATION_INTERVAL = 100;
 
         /// <value>
         /// Keep a count of the number of assets written so that we can provide status updates
         /// </value>
-        protected int m_assetsWritten; 
-        
+        protected int m_assetsWritten;
+
         protected TarArchiveWriter m_archiveWriter;
 
         public AssetsArchiver(TarArchiveWriter archiveWriter)
@@ -145,7 +145,7 @@ namespace OpenSim.Region.CoreModules.World.Archiver
             m_assetsWritten++;
 
             //m_log.DebugFormat("[ARCHIVER]: Added asset {0}", m_assetsWritten);
-            
+
             if (m_assetsWritten % LOG_ASSET_LOAD_NOTIFICATION_INTERVAL == 0)
                 m_log.InfoFormat("[ARCHIVER]: Added {0} assets to archive", m_assetsWritten);
         }

@@ -71,7 +71,7 @@ namespace OpenSim.Framework
                                 (uint)ParcelFlags.CreateObjects | (uint)ParcelFlags.AllowOtherScripts |
                                 (uint)ParcelFlags.AllowVoiceChat;
 
-        private byte _landingType = 0;
+        private byte _landingType = (byte)OpenMetaverse.LandingType.Direct;
         private string _name = "Your Parcel";
         private ParcelStatus _status = ParcelStatus.Leased;
         private int _localID = 0;
@@ -97,7 +97,9 @@ namespace OpenSim.Framework
         private bool _mediaLoop = false;
         private bool _obscureMusic = false;
         private bool _obscureMedia = false;
-        private float _dwell = 0;
+
+        private float m_dwell = 0;
+        public double LastDwellTimeMS;
 
         public bool SeeAVs { get; set; }
         public bool AnyAVSounds { get; set; }
@@ -111,11 +113,12 @@ namespace OpenSim.Framework
         {
             get
             {
-                return _dwell;
+                return m_dwell;
             }
             set
             {
-                _dwell = value;
+                m_dwell = value;
+                LastDwellTimeMS = Util.GetTimeStampMS();
             }
         }
 
@@ -411,7 +414,7 @@ namespace OpenSim.Framework
         }
 
         /// <summary>
-        /// Determines if people are able to teleport where they please on the parcel or if they 
+        /// Determines if people are able to teleport where they please on the parcel or if they
         /// get constrainted to a specific point on teleport within the parcel
         /// </summary>
         public byte LandingType
@@ -620,7 +623,7 @@ namespace OpenSim.Framework
         }
 
         /// <summary>
-        /// Number of meters^2 in the Simulator
+        /// Number of meters^2 that the land owner has in the Simulator
         /// </summary>
         [XmlIgnore]
         public int SimwideArea
@@ -667,7 +670,7 @@ namespace OpenSim.Framework
         }
 
         /// <summary>
-        /// When teleporting is restricted to a certain point, this is the location 
+        /// When teleporting is restricted to a certain point, this is the location
         /// that the user will be redirected to
         /// </summary>
         public Vector3 UserLocation
@@ -683,7 +686,7 @@ namespace OpenSim.Framework
         }
 
         /// <summary>
-        /// When teleporting is restricted to a certain point, this is the rotation 
+        /// When teleporting is restricted to a certain point, this is the rotation
         /// that the user will be positioned
         /// </summary>
         public Vector3 UserLookAt
@@ -699,7 +702,7 @@ namespace OpenSim.Framework
         }
 
         /// <summary>
-        /// Autoreturn number of minutes to return SceneObjectGroup that are owned by someone who doesn't own 
+        /// Autoreturn number of minutes to return SceneObjectGroup that are owned by someone who doesn't own
         /// the parcel and isn't set to the same 'group' as the parcel.
         /// </summary>
         public int OtherCleanTime
@@ -735,6 +738,7 @@ namespace OpenSim.Framework
             SeeAVs = true;
             AnyAVSounds = true;
             GroupAVSounds = true;
+            LastDwellTimeMS = Util.GetTimeStampMS();
         }
 
         /// <summary>
@@ -784,7 +788,7 @@ namespace OpenSim.Framework
             landData._obscureMedia = _obscureMedia;
             landData._simwideArea = _simwideArea;
             landData._simwidePrims = _simwidePrims;
-            landData._dwell = _dwell;
+            landData.m_dwell = m_dwell;
             landData.SeeAVs = SeeAVs;
             landData.AnyAVSounds = AnyAVSounds;
             landData.GroupAVSounds = GroupAVSounds;

@@ -107,7 +107,7 @@ namespace OpenSim.Data.SQLite
         public bool DeleteItems(string[] fields, string[] vals)
         {
             return m_Items.Delete(fields, vals);
-        }        
+        }
 
         public bool MoveItem(string id, string newParent)
         {
@@ -302,20 +302,14 @@ namespace OpenSim.Data.SQLite
         {
 //            m_log.DebugFormat("[MYSQL ITEM HANDLER]: Incrementing version on folder {0}", folderID);
 //            Util.PrintCallStack();
-            
+
             using (SqliteCommand cmd = new SqliteCommand())
             {
-                cmd.CommandText = "update inventoryfolders set version=version+1 where folderID = ?folderID";
+                cmd.CommandText = "update inventoryfolders set version=version+1 where folderID = :folderID";
                 cmd.Parameters.Add(new SqliteParameter(":folderID", folderID));
 
-                try
-                {
-                    cmd.ExecuteNonQuery();
-                }
-                catch (Exception)
-                {
+                if(ExecuteNonQuery(cmd, m_Connection) == 0)
                     return false;
-                }
             }
 
             return true;

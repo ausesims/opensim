@@ -30,6 +30,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Net;
 using System.Reflection;
+using System.Text;
 using System.Threading;
 using log4net;
 using Nini.Config;
@@ -46,7 +47,7 @@ namespace OpenSim.Tests.Common
 {
     public class TestEventQueueGetModule : IEventQueue, INonSharedRegionModule
     {
-        public class Event 
+        public class Event
         {
             public string Name { get; set; }
             public object[] Args { get; set; }
@@ -64,7 +65,7 @@ namespace OpenSim.Tests.Common
 
         public void Close() {}
 
-        public void AddRegion(Scene scene) 
+        public void AddRegion(Scene scene)
         {
             Events = new Dictionary<UUID, List<Event>>();
             scene.RegisterModuleInterface<IEventQueue>(this);
@@ -108,12 +109,12 @@ namespace OpenSim.Tests.Common
             AddEvent(avatarID, "Enqueue", o);
             return true;
         }
-
+/*
         public void DisableSimulator(ulong handle, UUID avatarID)
         {
             AddEvent(avatarID, "DisableSimulator", handle);
         }
-
+*/
         public void EnableSimulator (ulong handle, IPEndPoint endPoint, UUID avatarID, int regionSizeX, int regionSizeY)
         {
             AddEvent(avatarID, "EnableSimulator", handle);
@@ -138,18 +139,23 @@ namespace OpenSim.Tests.Common
         }
 
         public void ChatterboxInvitation(
-            UUID sessionID, string sessionName, UUID fromAgent, string message, UUID toAgent, string fromName, 
-            byte dialog, uint timeStamp, bool offline, int parentEstateID, Vector3 position, uint ttl, 
+            UUID sessionID, string sessionName, UUID fromAgent, string message, UUID toAgent, string fromName,
+            byte dialog, uint timeStamp, bool offline, int parentEstateID, Vector3 position, uint ttl,
             UUID transactionID, bool fromGroup, byte[] binaryBucket)
         {
             AddEvent(
-                toAgent, "ChatterboxInvitation", sessionID, sessionName, fromAgent, message, toAgent, fromName, dialog, 
+                toAgent, "ChatterboxInvitation", sessionID, sessionName, fromAgent, message, toAgent, fromName, dialog,
                 timeStamp, offline, parentEstateID, position, ttl, transactionID, fromGroup, binaryBucket);
         }
 
-        public void ChatterBoxSessionAgentListUpdates (UUID sessionID, UUID fromAgent, UUID toAgent, bool canVoiceChat, bool isModerator, bool textMute)
+        public void ChatterBoxSessionAgentListUpdates (UUID sessionID, UUID fromAgent, UUID toAgent, bool canVoiceChat, bool isModerator, bool textMute , bool isEnterorLeave)
         {
-            AddEvent(toAgent, "ChatterBoxSessionAgentListUpdates", sessionID, fromAgent, canVoiceChat, isModerator, textMute);
+            AddEvent(toAgent, "ChatterBoxSessionAgentListUpdates", sessionID, fromAgent, canVoiceChat, isModerator, textMute, isEnterorLeave);
+        }
+
+        public void ChatterBoxForceClose (UUID toAgent, UUID sessionID, string reason)
+        {
+            AddEvent(toAgent, "ForceCloseChatterBoxSession", sessionID, reason);
         }
 
         public void ParcelProperties (OpenMetaverse.Messages.Linden.ParcelPropertiesMessage parcelPropertiesMessage, UUID avatarID)
@@ -157,12 +163,12 @@ namespace OpenSim.Tests.Common
             AddEvent(avatarID, "ParcelProperties", parcelPropertiesMessage);
         }
 
-        public void GroupMembership (OpenMetaverse.Packets.AgentGroupDataUpdatePacket groupUpdate, UUID avatarID)
+        public void GroupMembershipData(UUID receiverAgent, GroupMembershipData[] data)
         {
-            AddEvent(avatarID, "GroupMembership", groupUpdate);
+            AddEvent(receiverAgent, "AgentGroupDataUpdate", data);
         }
 
-        public OSD ScriptRunningEvent (UUID objectID, UUID itemID, bool running, bool mono)
+        public void ScriptRunningEvent (UUID objectID, UUID itemID, bool running, UUID avatarID)
         {
             Console.WriteLine("ONE");
             throw new System.NotImplementedException ();
@@ -178,5 +184,15 @@ namespace OpenSim.Tests.Common
         {
             AddEvent(avatarID, "partPhysicsProperties", localID, physhapetype, density, friction, bounce, gravmod);
         }
-    }
+
+        public StringBuilder StartEvent(string eventName)
+        {
+            return null;
+        }
+
+        public string EndEvent(StringBuilder sb)
+        {
+            return "";
+        }
+}
 }

@@ -33,12 +33,14 @@ namespace OpenSim.Region.Framework.Interfaces
 {
     public interface ILandChannel
     {
+
+        float BanLineSafeHeight {get;}
         /// <summary>
         /// Get all parcels
         /// </summary>
         /// <returns></returns>
         List<ILandObject> AllParcels();
-             
+
         /// <summary>
         /// Get the parcel at the specified point
         /// </summary>
@@ -75,7 +77,9 @@ namespace OpenSim.Region.Framework.Interfaces
         /// <param name="localID"></param>
         /// <returns></returns>
         ILandObject GetLandObject(int localID);
-        
+
+        ILandObject GetLandObject(UUID GlobalID);
+
         /// <summary>
         /// Clear the land channel of all parcels.
         /// </summary>
@@ -83,9 +87,10 @@ namespace OpenSim.Region.Framework.Interfaces
         /// If true, set up a default parcel covering the whole region owned by the estate owner.
         /// </param>
         void Clear(bool setupDefaultParcel);
-        
+
         bool IsForcefulBansAllowed();
         void UpdateLandObject(int localID, LandData data);
+        void SendParcelsOverlay(IClientAPI client);
         void ReturnObjectsInParcel(int localID, uint returnType, UUID[] agentIDs, UUID[] taskIDs, IClientAPI remoteClient);
         void setParcelObjectMaxOverride(overrideParcelMaxPrimCountDelegate overrideDel);
         void setSimulatorObjectMaxOverride(overrideSimulatorMaxPrimCountDelegate overrideDel);
@@ -93,7 +98,6 @@ namespace OpenSim.Region.Framework.Interfaces
 
         void Join(int start_x, int start_y, int end_x, int end_y, UUID attempting_user_id);
         void Subdivide(int start_x, int start_y, int end_x, int end_y, UUID attempting_user_id);
-        void sendClientInitialLandInfo(IClientAPI remoteClient);
-
+        void sendClientInitialLandInfo(IClientAPI remoteClient, bool overlay);
     }
 }

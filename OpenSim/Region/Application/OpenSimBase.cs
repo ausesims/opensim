@@ -85,9 +85,10 @@ namespace OpenSim
 
         protected string proxyUrl;
         protected int proxyOffset = 0;
-        
+
         public string userStatsURI = String.Empty;
         public string managedStatsURI = String.Empty;
+        public string managedStatsPassword = String.Empty;
 
         protected bool m_autoCreateClientStack = true;
 
@@ -125,7 +126,7 @@ namespace OpenSim
         {
             get { return m_EnvConfigSource; }
         }
-       
+
         public uint HttpServerPort
         {
             get { return m_httpServerPort; }
@@ -210,7 +211,7 @@ namespace OpenSim
         }
 
         /// <summary>
-        /// Performs startup specific to the region server, including initialization of the scene 
+        /// Performs startup specific to the region server, including initialization of the scene
         /// such as loading configuration from disk.
         /// </summary>
         protected override void StartupSpecific()
@@ -218,10 +219,17 @@ namespace OpenSim
             IConfig startupConfig = Config.Configs["Startup"];
             if (startupConfig != null)
             {
+                // refuse to run MegaRegions
+                if(startupConfig.GetBoolean("CombineContiguousRegions", false))
+                {
+                    m_log.Fatal("CombineContiguousRegions (MegaRegions) option is no longer suported. Use a older version to save region contents as OAR, then import into a fresh install of this new version");
+                    throw new Exception("CombineContiguousRegions not suported");
+                }
+
                 string pidFile = startupConfig.GetString("PIDFile", String.Empty);
                 if (pidFile != String.Empty)
                     CreatePIDFile(pidFile);
-                
+
                 userStatsURI = startupConfig.GetString("Stats_URI", String.Empty);
 
                 m_securePermissionsLoading = startupConfig.GetBoolean("SecurePermissionsLoading", true);
@@ -229,9 +237,10 @@ namespace OpenSim
                 string permissionModules = Util.GetConfigVarFromSections<string>(Config, "permissionmodules",
                     new string[] { "Startup", "Permissions" }, "DefaultPermissionsModule");
 
-                m_permsModules = new List<string>(permissionModules.Split(','));
+                m_permsModules =  new List<string>(permissionModules.Split(',').Select(m => m.Trim()));
 
                 managedStatsURI = startupConfig.GetString("ManagedStatsRemoteFetchURI", String.Empty);
+                managedStatsPassword = startupConfig.GetString("ManagedStatsRemoteFetchPassword", String.Empty);
             }
 
             // Load the simulation data service
@@ -247,11 +256,11 @@ namespace OpenSim
             if (m_simulationDataService == null)
                 throw new Exception(
                     string.Format(
-                        "Could not load an ISimulationDataService implementation from {0}, as configured in the LocalServiceModule parameter of the [SimulationDataStore] config section.", 
+                        "Could not load an ISimulationDataService implementation from {0}, as configured in the LocalServiceModule parameter of the [SimulationDataStore] config section.",
                         module));
 
             // Load the estate data service
-            module = Util.GetConfigVarFromSections<string>(Config, "LocalServiceModule", new string[]{"EstateDataStore", "EstateService"}, String.Empty); 
+            module = Util.GetConfigVarFromSections<string>(Config, "LocalServiceModule", new string[]{"EstateDataStore", "EstateService"}, String.Empty);
             if (String.IsNullOrEmpty(module))
                 throw new Exception("Configuration file is missing the LocalServiceModule parameter in the [EstateDataStore] or [EstateService] section");
 
@@ -261,7 +270,7 @@ namespace OpenSim
                 if (m_estateDataService == null)
                     throw new Exception(
                         string.Format(
-                            "Could not load an IEstateDataService implementation from {0}, as configured in the LocalServiceModule parameter of the [EstateDataStore] config section.", 
+                            "Could not load an IEstateDataService implementation from {0}, as configured in the LocalServiceModule parameter of the [EstateDataStore] config section.",
                             module));
             }
 
@@ -344,7 +353,18 @@ namespace OpenSim
             if (startupConfig == null || startupConfig.GetBoolean("JobEngineEnabled", true))
                 WorkManager.JobEngine.Start();
 
-            m_httpServerPort = m_networkServersInfo.HttpListenerPort;
+           
+            if(m_networkServersInfo.HttpUsesSSL)
+            {
+                m_httpServerSSL = true;
+                m_httpServerPort = m_networkServersInfo.httpSSLPort;
+            }
+            else
+            {
+                m_httpServerSSL = false;
+                m_httpServerPort = m_networkServersInfo.HttpListenerPort;
+            }
+
             SceneManager.OnRestartSim += HandleRestartRegion;
 
             // Only enable the watchdogs when all regions are ready.  Otherwise we get false positives when cpu is
@@ -397,10 +417,21 @@ namespace OpenSim
 
             // set initial ServerURI
             regionInfo.HttpPort = m_httpServerPort;
-            regionInfo.ServerURI = "http://" + regionInfo.ExternalHostName + ":" + regionInfo.HttpPort.ToString() + "/";
-            
+            if(m_httpServerSSL)
+            {
+                if(!m_httpServer.CheckSSLCertHost(regionInfo.ExternalHostName))
+                    throw new Exception("main http cert CN doesn't match region External IP");
+
+                regionInfo.ServerURI = "https://" + regionInfo.ExternalHostName +
+                         ":" + regionInfo.HttpPort.ToString() + "/";
+            }
+            else
+                regionInfo.ServerURI = "http://" + regionInfo.ExternalHostName +
+                         ":" + regionInfo.HttpPort.ToString() + "/";
+
+
             regionInfo.osSecret = m_osSecret;
-            
+
             if ((proxyUrl.Length > 0) && (portadd_flag))
             {
                 // set proxy url to RegionInfo
@@ -446,25 +477,24 @@ namespace OpenSim
 
             if (scene.SnmpService != null)
             {
-                scene.SnmpService.BootInfo("Loading prins", scene);
+                scene.SnmpService.BootInfo("Loading prims", scene);
             }
 
             while (regionInfo.EstateSettings.EstateOwner == UUID.Zero && MainConsole.Instance != null)
                 SetUpEstateOwner(scene);
 
+            scene.loadAllLandObjectsFromStorage(regionInfo.originRegionID);
+
             // Prims have to be loaded after module configuration since some modules may be invoked during the load
             scene.LoadPrimsFromStorage(regionInfo.originRegionID);
-            
+
             // TODO : Try setting resource for region xstats here on scene
             MainServer.Instance.AddStreamHandler(new RegionStatsHandler(regionInfo));
-            
-            scene.loadAllLandObjectsFromStorage(regionInfo.originRegionID);
-            scene.EventManager.TriggerParcelPrimCountUpdate();
 
             if (scene.SnmpService != null)
             {
                 scene.SnmpService.BootInfo("Grid Registration in progress", scene);
-            } 
+            }
 
             try
             {
@@ -473,7 +503,7 @@ namespace OpenSim
             catch (Exception e)
             {
                 m_log.ErrorFormat(
-                    "[STARTUP]: Registration of region with grid failed, aborting startup due to {0} {1}", 
+                    "[STARTUP]: Registration of region with grid failed, aborting startup due to {0} {1}",
                     e.Message, e.StackTrace);
 
                 if (scene.SnmpService != null)
@@ -601,7 +631,7 @@ namespace OpenSim
 
                     if (rawEstateOwnerUuid == null)
                         rawEstateOwnerUuid = MainConsole.Instance.CmdPrompt("User ID", UUID.Random().ToString());
-        
+
                     UUID estateOwnerUuid = UUID.Zero;
                     if (!UUID.TryParse(rawEstateOwnerUuid, out estateOwnerUuid))
                     {
@@ -664,7 +694,7 @@ namespace OpenSim
             scene.DeleteAllSceneObjects();
             SceneManager.CloseScene(scene);
             //ShutdownClientServer(scene.RegionInfo);
-            
+
             if (!cleanup)
                 return;
 
@@ -726,7 +756,7 @@ namespace OpenSim
             SceneManager.CloseScene(scene);
             //ShutdownClientServer(scene.RegionInfo);
         }
-        
+
         /// <summary>
         /// Remove a region from the simulator without deleting it permanently.
         /// </summary>
@@ -738,7 +768,7 @@ namespace OpenSim
             if (SceneManager.TryGetScene(name, out target))
                 CloseRegion(target);
         }
-        
+
         /// <summary>
         /// Create a scene and its initial base structures.
         /// </summary>
@@ -774,15 +804,15 @@ namespace OpenSim
             IEstateDataService estateDataService, AgentCircuitManager circuitManager)
         {
             return new Scene(
-                regionInfo, circuitManager,  
+                regionInfo, circuitManager,
                 simDataService, estateDataService,
                 Config, m_version);
         }
-        
+
         protected virtual void HandleRestartRegion(RegionInfo whichRegion)
         {
             m_log.InfoFormat(
-                "[OPENSIM]: Got restart signal from SceneManager for region {0} ({1},{2})", 
+                "[OPENSIM]: Got restart signal from SceneManager for region {0} ({1},{2})",
                 whichRegion.RegionName, whichRegion.RegionLocX, whichRegion.RegionLocY);
 
             //ShutdownClientServer(whichRegion);
@@ -817,18 +847,18 @@ namespace OpenSim
 
         /// <summary>
         /// Handler to supply the current extended status of this sim
-        /// Sends the statistical data in a json serialization 
+        /// Sends the statistical data in a json serialization
         /// </summary>
         public class XSimStatusHandler : BaseStreamHandler
         {
             OpenSimBase m_opensim;
-        
-            public XSimStatusHandler(OpenSimBase sim) 
+
+            public XSimStatusHandler(OpenSimBase sim)
                 : base("GET", "/" + Util.SHA1Hash(sim.osSecret), "XSimStatus", "Simulator XStatus")
             {
                 m_opensim = sim;
             }
-            
+
             protected override byte[] ProcessRequest(string path, Stream request,
                                  IOSHttpRequest httpRequest, IOSHttpResponse httpResponse)
             {
@@ -843,24 +873,44 @@ namespace OpenSim
 
         /// <summary>
         /// Handler to supply the current extended status of this sim to a user configured URI
-        /// Sends the statistical data in a json serialization 
-        /// If the request contains a key, "callback" the response will be wrappend in the 
+        /// Sends the statistical data in a json serialization
+        /// If the request contains a key, "callback" the response will be wrappend in the
         /// associated value for jsonp used with ajax/javascript
         /// </summary>
         protected class UXSimStatusHandler : BaseStreamHandler
         {
             OpenSimBase m_opensim;
-        
+
             public UXSimStatusHandler(OpenSimBase sim)
                 : base("GET", "/" + sim.userStatsURI, "UXSimStatus", "Simulator UXStatus")
             {
-                m_opensim = sim;                
+                m_opensim = sim;
             }
-            
+
             protected override byte[] ProcessRequest(string path, Stream request,
                                  IOSHttpRequest httpRequest, IOSHttpResponse httpResponse)
             {
                 return Util.UTF8.GetBytes(m_opensim.StatReport(httpRequest));
+            }
+
+            public override string ContentType
+            {
+                get { return "text/plain"; }
+            }
+        }
+
+        /// <summary>
+        /// handler to supply serving http://domainname:port/robots.txt
+        /// </summary>
+        public class SimRobotsHandler : BaseStreamHandler
+        {
+            public SimRobotsHandler() : base("GET", "/robots.txt", "SimRobots.txt", "Simulator Robots.txt") {}
+
+            protected override byte[] ProcessRequest(string path, Stream request,
+                                 IOSHttpRequest httpRequest, IOSHttpResponse httpResponse)
+            {
+                string robots = "# go away\nUser-agent: *\nDisallow: /\n";
+                return Util.UTF8.GetBytes(robots);
             }
 
             public override string ContentType
@@ -929,7 +979,7 @@ namespace OpenSim
         {
             regionnum = SceneManager.Scenes.Count;
         }
-        
+
         /// <summary>
         /// Create an estate with an initial region.
         /// </summary>
@@ -956,19 +1006,19 @@ namespace OpenSim
                 MainConsole.Instance.OutputFormat("An estate named {0} already exists.  Please try again.", newName);
                 return false;
             }
-            
+
             regInfo.EstateSettings.EstateName = newName;
-            
+
             // FIXME: Later on, the scene constructor will reload the estate settings no matter what.
             // Therefore, we need to do an initial save here otherwise the new estate name will be reset
             // back to the default.  The reloading of estate settings by scene could be eliminated if it
-            // knows that the passed in settings in RegionInfo are already valid.  Also, it might be 
+            // knows that the passed in settings in RegionInfo are already valid.  Also, it might be
             // possible to eliminate some additional later saves made by callers of this method.
-            EstateDataService.StoreEstateSettings(regInfo.EstateSettings);   
-            
+            EstateDataService.StoreEstateSettings(regInfo.EstateSettings);
+
             return true;
         }
-        
+
         /// <summary>
         /// Load the estate information for the provided RegionInfo object.
         /// </summary>
@@ -982,8 +1032,8 @@ namespace OpenSim
                 return false;	// estate info in the database did not change
 
             m_log.WarnFormat("[ESTATE] Region {0} is not part of an estate.", regInfo.RegionName);
-            
-            List<EstateSettings> estates = EstateDataService.LoadEstateSettingsAll();                
+
+            List<EstateSettings> estates = EstateDataService.LoadEstateSettingsAll();
             Dictionary<string, EstateSettings> estatesByName = new Dictionary<string, EstateSettings>();
 
             foreach (EstateSettings estate in estates)
@@ -1081,7 +1131,7 @@ namespace OpenSim
     	    return true;	// need to update the database
     	}
     }
-    
+
     public class OpenSimConfigSource
     {
         public IConfigSource Source;

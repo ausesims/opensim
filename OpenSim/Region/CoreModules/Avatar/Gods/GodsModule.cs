@@ -59,20 +59,10 @@ namespace OpenSim.Region.CoreModules.Avatar.Gods
 
         /// <summary>Special UUID for actions that apply to all agents</summary>
         private static readonly UUID ALL_AGENTS = new UUID("44e87126-e794-4ded-05b3-7c42da3d5cdb");
+        private static readonly UUID UUID_GRID_GOD = new UUID("6571e388-6218-4574-87db-f9379718315e");
 
         protected Scene m_scene;
         protected IDialogModule m_dialogModule;
-
-        protected IDialogModule DialogModule
-        {
-            get
-            {
-                if (m_dialogModule == null)
-                    m_dialogModule = m_scene.RequestModuleInterface<IDialogModule>();
-
-                return m_dialogModule;
-            }
-        }
 
         public void Initialise(IConfigSource source)
         {
@@ -97,6 +87,7 @@ namespace OpenSim.Region.CoreModules.Avatar.Gods
 
         public void RegionLoaded(Scene scene)
         {
+            m_dialogModule = m_scene.RequestModuleInterface<IDialogModule>();
         }
 
         public void Close() {}
@@ -112,19 +103,19 @@ namespace OpenSim.Region.CoreModules.Avatar.Gods
             client.OnGodKickUser += KickUser;
             client.OnRequestGodlikePowers += RequestGodlikePowers;
         }
-        
+
         public void UnsubscribeFromClientEvents(IClientAPI client)
         {
             client.OnGodKickUser -= KickUser;
             client.OnRequestGodlikePowers -= RequestGodlikePowers;
         }
-        
+
         private void OnRegisterCaps(UUID agentID, Caps caps)
         {
             string uri = "/CAPS/" + UUID.Random();
 
             caps.RegisterHandler(
-                "UntrustedSimulatorMessage", 
+                "UntrustedSimulatorMessage",
                 new RestStreamHandler("POST", uri, HandleUntrustedSimulatorMessage, "UntrustedSimulatorMessage", null));
         }
 
@@ -152,7 +143,7 @@ namespace OpenSim.Region.CoreModules.Avatar.Gods
                 if (god == null || god.ControllingClient.SessionId != godSessionID)
                     return String.Empty;
 
-                KickUser(godID, godSessionID, agentID, kickFlags, Util.StringToBytes1024(reason));
+                KickUser(godID, agentID, kickFlags, reason);
             }
             else
             {
@@ -162,59 +153,63 @@ namespace OpenSim.Region.CoreModules.Avatar.Gods
         }
 
         public void RequestGodlikePowers(
-            UUID agentID, UUID sessionID, UUID token, bool godLike, IClientAPI controllingClient)
+            UUID agentID, UUID sessionID, UUID token, bool godLike)
         {
             ScenePresence sp = m_scene.GetScenePresence(agentID);
+            if(sp == null || sp.IsDeleted || sp.IsNPC)
+                return;
 
-            if (sp != null)
-            {
-                if (godLike == false)
-                {
-                    sp.GrantGodlikePowers(agentID, sessionID, token, godLike);
-                    return;
-                }
+            if (sessionID != sp.ControllingClient.SessionId)
+                return;
 
-                // First check that this is the sim owner
-                if (m_scene.Permissions.IsGod(agentID))
-                {
-                    // Next we check for spoofing.....
-                    UUID testSessionID = sp.ControllingClient.SessionId;
-                    if (sessionID == testSessionID)
-                    {
-                        if (sessionID == controllingClient.SessionId)
-                        {
-                            //m_log.Info("godlike: " + godLike.ToString());
-                            sp.GrantGodlikePowers(agentID, testSessionID, token, godLike);
-                        }
-                    }
-                }
-                else
-                {
-                    if (DialogModule != null)
-                        DialogModule.SendAlertToUser(agentID, "Request for god powers denied");
-                }
-            }
+            sp.GrantGodlikePowers(token, godLike);
+
+            if (godLike && !sp.IsViewerUIGod && m_dialogModule != null)
+               m_dialogModule.SendAlertToUser(agentID, "Request for god powers denied");
         }
-        
+
+        public void KickUser(UUID godID, UUID agentID, uint kickflags, byte[] reason)
+        {
+            KickUser(godID, agentID, kickflags, Utils.BytesToString(reason));
+        }
+
         /// <summary>
-        /// Kicks User specified from the simulator. This logs them off of the grid
-        /// If the client gets the UUID: 44e87126e7944ded05b37c42da3d5cdb it assumes
-        /// that you're kicking it even if the avatar's UUID isn't the UUID that the
-        /// agent is assigned
+        /// Kicks or freezes User specified from the simulator. This logs them off of the grid
         /// </summary>
         /// <param name="godID">The person doing the kicking</param>
-        /// <param name="sessionID">The session of the person doing the kicking</param>
         /// <param name="agentID">the person that is being kicked</param>
         /// <param name="kickflags">Tells what to do to the user</param>
         /// <param name="reason">The message to send to the user after it's been turned into a field</param>
-        public void KickUser(UUID godID, UUID sessionID, UUID agentID, uint kickflags, byte[] reason)
+        public void KickUser(UUID godID, UUID agentID, uint kickflags, string reason)
         {
-            if (!m_scene.Permissions.IsGod(godID))
+            // assuming automatic god rights on this for fast griefing reaction
+            // this is also needed for kick via message
+            if(!m_scene.Permissions.IsGod(godID))
                 return;
 
-            ScenePresence sp = m_scene.GetScenePresence(agentID);
+            int godlevel = 200;
+            // update level so higher gods can kick lower ones
+            ScenePresence god = m_scene.GetScenePresence(godID);
+            if(god != null && god.GodController.GodLevel > godlevel)
+                godlevel =  god.GodController.GodLevel;
 
-            if (sp == null && agentID != ALL_AGENTS)
+            if(agentID == ALL_AGENTS)
+            {
+                m_scene.ForEachRootScenePresence(delegate(ScenePresence p)
+                {
+                    if (p.UUID != godID)
+                    {
+                        if(godlevel > p.GodController.GodLevel)
+                            doKickmodes(godID, p, kickflags, reason);
+                        else if(m_dialogModule != null)
+                            m_dialogModule.SendAlertToUser(p.UUID, "Kick from " + godID.ToString() + " ignored, kick reason: " + reason);
+                    }
+                });
+                return;
+            }
+
+            ScenePresence sp = m_scene.GetScenePresence(agentID);
+            if (sp == null || sp.IsChildAgent)
             {
                 IMessageTransferModule transferModule =
                         m_scene.RequestModuleInterface<IMessageTransferModule>();
@@ -223,58 +218,95 @@ namespace OpenSim.Region.CoreModules.Avatar.Gods
                     m_log.DebugFormat("[GODS]: Sending nonlocal kill for agent {0}", agentID);
                     transferModule.SendInstantMessage(new GridInstantMessage(
                             m_scene, godID, "God", agentID, (byte)250, false,
-                            Utils.BytesToString(reason), UUID.Zero, true,
+                            reason, UUID.Zero, true,
                             new Vector3(), new byte[] {(byte)kickflags}, true),
                             delegate(bool success) {} );
                 }
                 return;
             }
 
+            if (godlevel <= sp.GodController.GodLevel) // no god wars
+            {
+                if(m_dialogModule != null)
+                    m_dialogModule.SendAlertToUser(sp.UUID, "Kick from " + godID.ToString() + " ignored, kick reason: " + reason);
+                return;
+            }
+
+            if(sp.UUID == godID)
+                return;
+
+            doKickmodes(godID, sp, kickflags, reason);
+        }
+
+        private void doKickmodes(UUID godID, ScenePresence sp, uint kickflags, string reason)
+        {
             switch (kickflags)
             {
-            case 0:
-                if (sp != null)
-                {
-                    KickPresence(sp, Utils.BytesToString(reason));
-                }
-                else if (agentID == ALL_AGENTS)
-                {
-                    m_scene.ForEachRootScenePresence(
-                            delegate(ScenePresence p)
-                            {
-                                if (p.UUID != godID && (!m_scene.Permissions.IsGod(p.UUID)))
-                                    KickPresence(p, Utils.BytesToString(reason));
-                            }
-                    );
-                }
-                break;
-            case 1:
-                if (sp != null)
-                {
+                case 0:
+                    KickPresence(sp, reason);
+                    break;
+                case 1:
                     sp.AllowMovement = false;
-                    m_dialogModule.SendAlertToUser(agentID, Utils.BytesToString(reason));
-                    m_dialogModule.SendAlertToUser(godID, "User Frozen");
-                }
-                break;
-            case 2:
-                if (sp != null)
-                {
+                    if(m_dialogModule != null)
+                    {
+                        m_dialogModule.SendAlertToUser(sp.UUID, reason);
+                        m_dialogModule.SendAlertToUser(godID, "User Frozen");
+                    }
+                    break;
+                case 2:
                     sp.AllowMovement = true;
-                    m_dialogModule.SendAlertToUser(agentID, Utils.BytesToString(reason));
-                    m_dialogModule.SendAlertToUser(godID, "User Unfrozen");
-                }
-                break;
-            default:
-                break;
+                    if(m_dialogModule != null)
+                    {
+                        m_dialogModule.SendAlertToUser(sp.UUID, reason);
+                        m_dialogModule.SendAlertToUser(godID, "User Unfrozen");
+                    }
+                    break;
+                default:
+                    break;
             }
         }
 
         private void KickPresence(ScenePresence sp, string reason)
         {
-            if (sp.IsChildAgent)
+            if(sp.IsDeleted || sp.IsChildAgent)
                 return;
             sp.ControllingClient.Kick(reason);
-            sp.Scene.CloseAgent(sp.UUID, true); 
+            sp.Scene.CloseAgent(sp.UUID, true);
+        }
+
+        public void GridKickUser(UUID agentID, string reason)
+        {
+            int godlevel = 240; // grid god default
+
+            ScenePresence sp = m_scene.GetScenePresence(agentID);
+            if (sp == null || sp.IsChildAgent)
+            {
+                IMessageTransferModule transferModule =
+                        m_scene.RequestModuleInterface<IMessageTransferModule>();
+                if (transferModule != null)
+                {
+                    m_log.DebugFormat("[GODS]: Sending nonlocal kill for agent {0}", agentID);
+                    transferModule.SendInstantMessage(new GridInstantMessage(
+                            m_scene, UUID_GRID_GOD, "GRID", agentID, (byte)250, false,
+                            reason, UUID.Zero, true,
+                            new Vector3(), new byte[] {0}, true),
+                            delegate(bool success) {} );
+                }
+                return;
+            }
+
+            if(sp.IsDeleted)
+                return;
+
+            if (godlevel <= sp.GodController.GodLevel) // no god wars
+            {
+                if(m_dialogModule != null)
+                    m_dialogModule.SendAlertToUser(sp.UUID, "GRID kick detected and ignored, kick reason: " + reason);
+                return;
+            }
+
+            sp.ControllingClient.Kick(reason);
+            sp.Scene.CloseAgent(sp.UUID, true);
         }
 
         private void OnIncomingInstantMessage(GridInstantMessage msg)
@@ -286,7 +318,10 @@ namespace OpenSim.Region.CoreModules.Avatar.Gods
                 UUID godID = new UUID(msg.fromAgentID);
                 uint kickMode = (uint)msg.binaryBucket[0];
 
-                KickUser(godID, UUID.Zero, agentID, kickMode, Util.StringToBytes1024(reason));
+                if(godID == UUID_GRID_GOD)
+                    GridKickUser(agentID, reason);
+                else
+                    KickUser(godID, agentID, kickMode, reason);
             }
         }
     }

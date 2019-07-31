@@ -26,22 +26,26 @@
  */
 
 using System;
-using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Security;
 using System.Timers;
+using System.Threading;
 using log4net;
 using Mono.Addins;
 using Nini.Config;
 using OpenMetaverse;
 using OpenSim.Framework;
+using OpenSim.Framework.Monitoring;
 using OpenSim.Region.Framework.Interfaces;
 using OpenSim.Region.Framework.Scenes;
 using OpenSim.Services.Interfaces;
 using RegionFlags = OpenMetaverse.RegionFlags;
+using Timer = System.Timers.Timer;
+
 
 namespace OpenSim.Region.CoreModules.World.Estate
 {
@@ -53,13 +57,15 @@ namespace OpenSim.Region.CoreModules.World.Estate
         private Timer m_regionChangeTimer = new Timer();
         public Scene Scene { get; private set; }
         public IUserManagement UserManager { get; private set; }
-        
-        protected EstateManagementCommands m_commands;                
+
+        protected EstateManagementCommands m_commands;
 
         /// <summary>
         /// If false, region restart requests from the client are blocked even if they are otherwise legitimate.
         /// </summary>
         public bool AllowRegionRestartFromClient { get; set; }
+        private bool m_ignoreEstateMinorAccessControl;
+        private bool m_ignoreEstatePaymentAccessControl;
 
         private EstateTerrainXferHandler TerrainUploader;
         public TelehubManager m_Telehub;
@@ -67,25 +73,31 @@ namespace OpenSim.Region.CoreModules.World.Estate
         public event ChangeDelegate OnRegionInfoChange;
         public event ChangeDelegate OnEstateInfoChange;
         public event MessageDelegate OnEstateMessage;
+        public event EstateTeleportOneUserHomeRequest OnEstateTeleportOneUserHomeRequest;
+        public event EstateTeleportAllUsersHomeRequest OnEstateTeleportAllUsersHomeRequest;
 
         private int m_delayCount = 0;
 
         #region Region Module interface
-        
-        public string Name { get { return "EstateManagementModule"; } }
-        
-        public Type ReplaceableInterface { get { return null; } }        
 
-        public void Initialise(IConfigSource source) 
+        public string Name { get { return "EstateManagementModule"; } }
+
+        public Type ReplaceableInterface { get { return null; } }
+
+        public void Initialise(IConfigSource source)
         {
             AllowRegionRestartFromClient = true;
 
             IConfig config = source.Configs["EstateManagement"];
 
             if (config != null)
+            {
                 AllowRegionRestartFromClient = config.GetBoolean("AllowRegionRestartFromClient", true);
+                m_ignoreEstateMinorAccessControl = config.GetBoolean("IgnoreEstateMinorAccessControl", false);
+                m_ignoreEstatePaymentAccessControl = config.GetBoolean("IgnoreEstatePaymentAccessControl", false);
+            }
         }
-        
+
         public void AddRegion(Scene scene)
         {
             Scene = scene;
@@ -102,19 +114,22 @@ namespace OpenSim.Region.CoreModules.World.Estate
             m_regionChangeTimer.Elapsed += RaiseRegionInfoChange;
             m_regionChangeTimer.AutoReset = false;
         }
-        
-        public void RemoveRegion(Scene scene) {}            
-        
+
+        public void RemoveRegion(Scene scene) {}
+
         public void RegionLoaded(Scene scene)
         {
             // Sets up the sun module based no the saved Estate and Region Settings
             // DO NOT REMOVE or the sun will stop working
             scene.TriggerEstateSunUpdate();
-            
-            UserManager = scene.RequestModuleInterface<IUserManagement>();            
+
+            UserManager = scene.RequestModuleInterface<IUserManagement>();
+
+            scene.RegionInfo.EstateSettings.DoDenyMinors = !m_ignoreEstateMinorAccessControl;
+            scene.RegionInfo.EstateSettings.DoDenyAnonymous = !m_ignoreEstateMinorAccessControl;
         }
 
-        public void Close() 
+        public void Close()
         {
             m_commands.Close();
         }
@@ -441,7 +456,7 @@ namespace OpenSim.Region.CoreModules.World.Estate
                     Scene.RegionInfo.EstateSettings.EstateID);
 
             remote_client.SendEstateList(invoice,
-                    (int)Constants.EstateAccessCodex.AccessOptions,
+                    (int)Constants.EstateAccessCodex.AllowedAccess,
                     Scene.RegionInfo.EstateSettings.EstateAccess,
                     Scene.RegionInfo.EstateSettings.EstateID);
 
@@ -480,7 +495,7 @@ namespace OpenSim.Region.CoreModules.World.Estate
 
             if((byte)maxAgents <= Scene.RegionInfo.AgentCapacity)
                 Scene.RegionInfo.RegionSettings.AgentLimit = (byte) maxAgents;
-			else
+            else
                 Scene.RegionInfo.RegionSettings.AgentLimit = Scene.RegionInfo.AgentCapacity;
 
             Scene.RegionInfo.RegionSettings.ObjectBonus = objectBonusFactor;
@@ -559,7 +574,7 @@ namespace OpenSim.Region.CoreModules.World.Estate
             Scene.RegionInfo.RegionSettings.Save();
             TriggerRegionInfoChange();
             sendRegionHandshakeToAll();
-            sendRegionInfoPacketToAll();
+//            sendRegionInfoPacketToAll();
         }
 
         private void handleCommitEstateTerrainTextureRequest(IClientAPI remoteClient)
@@ -572,6 +587,7 @@ namespace OpenSim.Region.CoreModules.World.Estate
                 bool UseEstateSun, bool UseFixedSun, float SunHour,
                 bool UseGlobal, bool EstateFixedSun, float EstateSunHour)
         {
+            double lastwaterlevel = Scene.RegionInfo.RegionSettings.WaterHeight;
             // Water Height
             Scene.RegionInfo.RegionSettings.WaterHeight = WaterHeight;
 
@@ -583,6 +599,9 @@ namespace OpenSim.Region.CoreModules.World.Estate
             Scene.RegionInfo.RegionSettings.UseEstateSun = UseEstateSun;
             Scene.RegionInfo.RegionSettings.FixedSun = UseFixedSun;
             Scene.RegionInfo.RegionSettings.SunPosition = SunHour;
+
+            if(Scene.PhysicsEnabled && Scene.PhysicsScene != null && lastwaterlevel != WaterHeight)
+                Scene.PhysicsScene.SetWaterLevel(WaterHeight);
 
             Scene.TriggerEstateSunUpdate();
 
@@ -630,7 +649,7 @@ namespace OpenSim.Region.CoreModules.World.Estate
                 restartModule.ScheduleRestart(UUID.Zero, "Region will restart in {0}", times.ToArray(), false);
 
                 m_log.InfoFormat(
-                    "User {0} requested restart of region {1} in {2} seconds", 
+                    "User {0} requested restart of region {1} in {2} seconds",
                     remoteClient.Name, Scene.Name, times.Count != 0 ? times[0] : 0);
             }
         }
@@ -638,236 +657,365 @@ namespace OpenSim.Region.CoreModules.World.Estate
         private void handleChangeEstateCovenantRequest(IClientAPI remoteClient, UUID estateCovenantID)
         {
 //            m_log.DebugFormat(
-//                "[ESTATE MANAGEMENT MODULE]: Handling request from {0} to change estate covenant to {1}", 
+//                "[ESTATE MANAGEMENT MODULE]: Handling request from {0} to change estate covenant to {1}",
 //                remoteClient.Name, estateCovenantID);
-            
+
             Scene.RegionInfo.RegionSettings.Covenant = estateCovenantID;
             Scene.RegionInfo.RegionSettings.CovenantChangedDateTime = Util.UnixTimeSinceEpoch();
             Scene.RegionInfo.RegionSettings.Save();
             TriggerRegionInfoChange();
         }
 
-        private void handleEstateAccessDeltaRequest(IClientAPI remote_client, UUID invoice, int estateAccessType, UUID user)
+        private object deltareqLock = new object();
+        private bool runnigDeltaExec = false;
+
+        private class EstateAccessDeltaRequest
+        {
+            public IClientAPI remote_client;
+            public UUID invoice;
+            public int estateAccessType;
+            public UUID user;
+        }
+
+        private BlockingCollection<EstateAccessDeltaRequest> deltaRequests = new BlockingCollection<EstateAccessDeltaRequest>();
+
+        private void handleEstateAccessDeltaRequest(IClientAPI _remote_client, UUID _invoice, int _estateAccessType, UUID _user)
         {
             // EstateAccessDelta handles Estate Managers, Sim Access, Sim Banlist, allowed Groups..  etc.
 
-            if (user == Scene.RegionInfo.EstateSettings.EstateOwner)
+            if (_user == Scene.RegionInfo.EstateSettings.EstateOwner)
                 return; // never process EO
 
-            if ((estateAccessType & 4) != 0) // User add
+            EstateAccessDeltaRequest newreq = new EstateAccessDeltaRequest();
+            newreq.remote_client = _remote_client;
+            newreq.invoice = _invoice;
+            newreq.estateAccessType = _estateAccessType;
+            newreq.user = _user;
+
+            deltaRequests.Add(newreq);
+
+            lock(deltareqLock)
             {
-                if (Scene.Permissions.CanIssueEstateCommand(remote_client.AgentId, true))
+                if(!runnigDeltaExec)
                 {
-                    if ((estateAccessType & 1) != 0) // All estates
-                    {
-                        List<int> estateIDs = Scene.EstateDataService.GetEstatesByOwner(Scene.RegionInfo.EstateSettings.EstateOwner);
-                        EstateSettings estateSettings;
-
-                        foreach (int estateID in estateIDs)
-                        {
-                            if (estateID != Scene.RegionInfo.EstateSettings.EstateID)
-                            {
-                                estateSettings = Scene.EstateDataService.LoadEstateSettings(estateID);
-                                estateSettings.AddEstateUser(user);
-                                Scene.EstateDataService.StoreEstateSettings(estateSettings);
-                            }
-                        }
-                    }
-
-                    Scene.RegionInfo.EstateSettings.AddEstateUser(user);
-                    Scene.EstateDataService.StoreEstateSettings(Scene.RegionInfo.EstateSettings);
-
-                    TriggerEstateInfoChange();
-                    remote_client.SendEstateList(invoice, (int)Constants.EstateAccessCodex.AccessOptions, Scene.RegionInfo.EstateSettings.EstateAccess, Scene.RegionInfo.EstateSettings.EstateID);
-                }
-                else
-                {
-                    remote_client.SendAlertMessage("Method EstateAccessDelta Failed, you don't have permissions");
-                }
-
-            }
-
-            if ((estateAccessType & 8) != 0) // User remove
-            {
-                if (Scene.Permissions.CanIssueEstateCommand(remote_client.AgentId, true))
-                {
-                    if ((estateAccessType & 1) != 0) // All estates
-                    {
-                        List<int> estateIDs = Scene.EstateDataService.GetEstatesByOwner(Scene.RegionInfo.EstateSettings.EstateOwner);
-                        EstateSettings estateSettings;
-
-                        foreach (int estateID in estateIDs)
-                        {
-                            if (estateID != Scene.RegionInfo.EstateSettings.EstateID)
-                            {
-                                estateSettings = Scene.EstateDataService.LoadEstateSettings(estateID);
-                                estateSettings.RemoveEstateUser(user);
-                                Scene.EstateDataService.StoreEstateSettings(estateSettings);
-                            }
-                        }
-                    }
-
-                    Scene.RegionInfo.EstateSettings.RemoveEstateUser(user);
-                    Scene.EstateDataService.StoreEstateSettings(Scene.RegionInfo.EstateSettings);
-
-                    TriggerEstateInfoChange();
-                    remote_client.SendEstateList(invoice, (int)Constants.EstateAccessCodex.AccessOptions, Scene.RegionInfo.EstateSettings.EstateAccess, Scene.RegionInfo.EstateSettings.EstateID);
-                }
-                else
-                {
-                    remote_client.SendAlertMessage("Method EstateAccessDelta Failed, you don't have permissions");
+                    runnigDeltaExec = true;
+                    WorkManager.RunInThreadPool(execDeltaRequests,null,"execDeltaRequests");
                 }
             }
+        }
 
-            if ((estateAccessType & 16) != 0) // Group add
+        private void execDeltaRequests(object o)
+        {
+            IClientAPI remote_client;
+            UUID invoice;
+            int estateAccessType;
+            UUID user;
+            Dictionary<int,EstateSettings> changed = new Dictionary<int,EstateSettings>();
+            Dictionary<IClientAPI,UUID> sendAllowedOrBanList = new Dictionary<IClientAPI,UUID>();
+            Dictionary<IClientAPI,UUID> sendManagers  = new Dictionary<IClientAPI,UUID>();
+            Dictionary<IClientAPI,UUID> sendGroups  = new Dictionary<IClientAPI,UUID>();
+
+            List<EstateSettings> otherEstates = new List<EstateSettings>();
+
+            bool sentAllowedFull = false;
+            bool sentBansFull = false;
+            bool sentGroupsFull = false;
+            bool sentManagersFull = false;
+
+            EstateAccessDeltaRequest req;
+            while(Scene.IsRunning)
             {
-                if (Scene.Permissions.CanIssueEstateCommand(remote_client.AgentId, true))
+                req = null;
+                deltaRequests.TryTake(out req, 500);
+
+                if(!Scene.IsRunning)
+                    break;
+
+                if(req == null)
                 {
-                    if ((estateAccessType & 1) != 0) // All estates
+                    if(changed.Count > 0)
                     {
-                        List<int> estateIDs = Scene.EstateDataService.GetEstatesByOwner(Scene.RegionInfo.EstateSettings.EstateOwner);
-                        EstateSettings estateSettings;
-
-                        foreach (int estateID in estateIDs)
-                        {
-                            if (estateID != Scene.RegionInfo.EstateSettings.EstateID)
-                            {
-                                estateSettings = Scene.EstateDataService.LoadEstateSettings(estateID);
-                                estateSettings.AddEstateGroup(user);
-                                Scene.EstateDataService.StoreEstateSettings(estateSettings);
-                            }
-                        }
-                    }
-
-                    Scene.RegionInfo.EstateSettings.AddEstateGroup(user);
-                    Scene.EstateDataService.StoreEstateSettings(Scene.RegionInfo.EstateSettings);
-
-                    TriggerEstateInfoChange();
-                    remote_client.SendEstateList(invoice, (int)Constants.EstateAccessCodex.AllowedGroups, Scene.RegionInfo.EstateSettings.EstateGroups, Scene.RegionInfo.EstateSettings.EstateID);
-                }
-                else
-                {
-                    remote_client.SendAlertMessage("Method EstateAccessDelta Failed, you don't have permissions");
-                }
-            }
-
-            if ((estateAccessType & 32) != 0) // Group remove
-            {
-                if (Scene.Permissions.CanIssueEstateCommand(remote_client.AgentId, true))
-                {
-                    if ((estateAccessType & 1) != 0) // All estates
-                    {
-                        List<int> estateIDs = Scene.EstateDataService.GetEstatesByOwner(Scene.RegionInfo.EstateSettings.EstateOwner);
-                        EstateSettings estateSettings;
-
-                        foreach (int estateID in estateIDs)
-                        {
-                            if (estateID != Scene.RegionInfo.EstateSettings.EstateID)
-                            {
-                                estateSettings = Scene.EstateDataService.LoadEstateSettings(estateID);
-                                estateSettings.RemoveEstateGroup(user);
-                                Scene.EstateDataService.StoreEstateSettings(estateSettings);
-                            }
-                        }
-                    }
-
-                    Scene.RegionInfo.EstateSettings.RemoveEstateGroup(user);
-                    Scene.EstateDataService.StoreEstateSettings(Scene.RegionInfo.EstateSettings);
-
-                    TriggerEstateInfoChange();
-                    remote_client.SendEstateList(invoice, (int)Constants.EstateAccessCodex.AllowedGroups, Scene.RegionInfo.EstateSettings.EstateGroups, Scene.RegionInfo.EstateSettings.EstateID);
-                }
-                else
-                {
-                    remote_client.SendAlertMessage("Method EstateAccessDelta Failed, you don't have permissions");
-                }
-            }
-
-            if ((estateAccessType & 64) != 0) // Ban add
-            {
-                if (Scene.Permissions.CanIssueEstateCommand(remote_client.AgentId, false))
-                {
-                    EstateBan[] banlistcheck = Scene.RegionInfo.EstateSettings.EstateBans;
-
-                    bool alreadyInList = false;
-
-                    for (int i = 0; i < banlistcheck.Length; i++)
-                    {
-                        if (user == banlistcheck[i].BannedUserID)
-                        {
-                            alreadyInList = true;
-                            break;
-                        }
-
-                    }
-                    if (!alreadyInList)
-                    {
-
-                        if ((estateAccessType & 1) != 0) // All estates
-                        {
-                            List<int> estateIDs = Scene.EstateDataService.GetEstatesByOwner(Scene.RegionInfo.EstateSettings.EstateOwner);
-                            EstateSettings estateSettings;
-
-                            foreach (int estateID in estateIDs)
-                            {
-                                if (estateID != Scene.RegionInfo.EstateSettings.EstateID)
-                                {
-                                    EstateBan bitem = new EstateBan();
-
-                                    bitem.BannedUserID = user;
-                                    bitem.EstateID = (uint)estateID;
-                                    bitem.BannedHostAddress = "0.0.0.0";
-                                    bitem.BannedHostIPMask = "0.0.0.0";
-
-                                    estateSettings = Scene.EstateDataService.LoadEstateSettings(estateID);
-                                    estateSettings.AddBan(bitem);
-                                    Scene.EstateDataService.StoreEstateSettings(estateSettings);
-                                }
-                            }
-                        }
-
-                        EstateBan item = new EstateBan();
-
-                        item.BannedUserID = user;
-                        item.EstateID = Scene.RegionInfo.EstateSettings.EstateID;
-                        item.BannedHostAddress = "0.0.0.0";
-                        item.BannedHostIPMask = "0.0.0.0";
-
-                        Scene.RegionInfo.EstateSettings.AddBan(item);
-                        Scene.EstateDataService.StoreEstateSettings(Scene.RegionInfo.EstateSettings);
+                        foreach(EstateSettings est in changed.Values)
+                            Scene.EstateDataService.StoreEstateSettings(est);
 
                         TriggerEstateInfoChange();
+                    }
 
-                        ScenePresence s = Scene.GetScenePresence(user);
-                        if (s != null)
+                    EstateSettings es = Scene.RegionInfo.EstateSettings;
+                    foreach(KeyValuePair<IClientAPI,UUID> kvp in sendAllowedOrBanList)
+                    {
+                        IClientAPI cli = kvp.Key;
+                        UUID invoive = kvp.Value;
+                        cli.SendEstateList(invoive, (int)Constants.EstateAccessCodex.AllowedAccess, es.EstateAccess, es.EstateID);
+                        cli.SendBannedUserList(invoive, es.EstateBans, es.EstateID);
+                    }
+                    sendAllowedOrBanList.Clear();
+
+                    foreach(KeyValuePair<IClientAPI,UUID> kvp in sendManagers)
+                    {
+                        IClientAPI cli = kvp.Key;
+                        cli.SendEstateList(kvp.Value, (int)Constants.EstateAccessCodex.EstateManagers, es.EstateManagers, es.EstateID);
+                    }
+                    foreach(KeyValuePair<IClientAPI,UUID> kvp in sendGroups)
+                    {
+                        IClientAPI cli = kvp.Key;
+                        cli.SendEstateList(kvp.Value, (int)Constants.EstateAccessCodex.AllowedGroups, es.EstateGroups, es.EstateID);
+                    }
+                    otherEstates.Clear();
+                    sendAllowedOrBanList.Clear();
+                    sendManagers.Clear();
+                    sendGroups.Clear();
+                    changed.Clear();
+                    lock(deltareqLock)
+                    {
+                        if(deltaRequests.Count != 0)
+                            continue;
+                        runnigDeltaExec = false;
+                        return;
+                    }
+                }
+
+                remote_client = req.remote_client;
+                if(!remote_client.IsActive)
+                    continue;
+
+                invoice = req.invoice;
+                user = req.user;
+
+                estateAccessType = req.estateAccessType;
+
+                bool needReply = ((estateAccessType & 1024) == 0);
+                bool doOtherEstates = ((estateAccessType & 3) != 0);
+
+                EstateSettings thisSettings = Scene.RegionInfo.EstateSettings;
+                int thisEstateID =(int)thisSettings.EstateID;
+
+                UUID agentID = remote_client.AgentId;
+
+                bool isadmin = Scene.Permissions.IsAdministrator(agentID);
+                // just i case recheck rights
+                if (!isadmin && !Scene.Permissions.IsEstateManager(agentID))
+                {
+                    remote_client.SendAlertMessage("Method EstateAccess Failed, you don't have permissions");
+                    continue;
+                }
+
+                otherEstates.Clear();
+                if(doOtherEstates)
+                {
+                    UUID thisOwner = Scene.RegionInfo.EstateSettings.EstateOwner;
+                    List<int> estateIDs = Scene.EstateDataService.GetEstatesByOwner(thisOwner);
+                    foreach (int estateID in estateIDs)
+                    {
+                        if (estateID == thisEstateID)
+                            continue;
+
+                        EstateSettings estateSettings;
+                        if(changed.ContainsKey(estateID))
+                            estateSettings = changed[estateID];
+                        else
+                            estateSettings = Scene.EstateDataService.LoadEstateSettings(estateID);
+
+                        if(!isadmin && !estateSettings.IsEstateManagerOrOwner(agentID))
+                            continue;
+                        otherEstates.Add(estateSettings);
+                    }
+                    estateIDs.Clear();
+                }
+
+                // the commands
+                // first the ones allowed for estate managers on this region
+                if ((estateAccessType & 4) != 0) // User add
+                {
+                    if(thisSettings.EstateUsersCount() >= (int)Constants.EstateAccessLimits.AllowedAccess)
+                    {
+                        if(!sentAllowedFull)
                         {
-                            if (!s.IsChildAgent)
-                            {
-                                if (!Scene.TeleportClientHome(user, s.ControllingClient))
-                                {
-                                    s.ControllingClient.Kick("Your access to the region was revoked and TP home failed - you have been logged out.");
-                                    Scene.CloseAgent(s.UUID, false);
-                                }
-                            }
-                        }
-
+                            sentAllowedFull = true;
+                            remote_client.SendAlertMessage("Estate Allowed users list is full");
+                         }
                     }
                     else
                     {
-                        remote_client.SendAlertMessage("User is already on the region ban list");
-                    }
-                    //Scene.RegionInfo.regionBanlist.Add(Manager(user);
-                    remote_client.SendBannedUserList(invoice, Scene.RegionInfo.EstateSettings.EstateBans, Scene.RegionInfo.EstateSettings.EstateID);
-                }
-                else
-                {
-                    remote_client.SendAlertMessage("Method EstateAccessDelta Failed, you don't have permissions");
-                }
-            }
+                        if (doOtherEstates)
+                        {
+                            foreach (EstateSettings estateSettings in otherEstates)
+                            {
+                                if(!isadmin && !estateSettings.IsEstateManagerOrOwner(agentID))
+                                    continue;
+                                if(estateSettings.EstateUsersCount() >= (int)Constants.EstateAccessLimits.AllowedAccess)
+                                    continue;
+                                estateSettings.AddEstateUser(user);
+                                estateSettings.RemoveBan(user);
+                                changed[(int)estateSettings.EstateID] = estateSettings;
+                            }
+                        }
 
-            if ((estateAccessType & 128) != 0) // Ban remove
-            {
-                if (Scene.Permissions.CanIssueEstateCommand(remote_client.AgentId, false))
+                        thisSettings.AddEstateUser(user);
+                        thisSettings.RemoveBan(user);
+                        changed[thisEstateID] = thisSettings;;
+
+                        if(needReply)
+                            sendAllowedOrBanList[remote_client] = invoice;
+                    }
+                }
+
+                if ((estateAccessType & 8) != 0) // User remove
+                {
+                    if (doOtherEstates) // All estates
+                    {
+                        foreach (EstateSettings estateSettings in otherEstates)
+                        {
+                            if(!isadmin && !estateSettings.IsEstateManagerOrOwner(agentID))
+                                continue;
+                            estateSettings.RemoveEstateUser(user);
+                            changed[(int)estateSettings.EstateID] = estateSettings;
+                        }
+                    }
+
+                    thisSettings.RemoveEstateUser(user);
+                    changed[thisEstateID] = thisSettings;;
+
+                    if(needReply)
+                        sendAllowedOrBanList[remote_client] = invoice;
+                }
+
+                if ((estateAccessType & 16) != 0) // Group add
+                {
+                    if(thisSettings.EstateGroupsCount() >= (int)Constants.EstateAccessLimits.AllowedGroups)
+                    {
+                        if(!sentGroupsFull)
+                        {
+                            sentGroupsFull = true;
+                            remote_client.SendAlertMessage("Estate Allowed groups list is full");
+                         }
+                    }
+                    else
+                    {
+                        if (doOtherEstates) // All estates
+                        {
+                            foreach (EstateSettings estateSettings in otherEstates)
+                            {
+                                if(!isadmin && !estateSettings.IsEstateManagerOrOwner(agentID))
+                                    continue;
+                                if(estateSettings.EstateGroupsCount() >= (int)Constants.EstateAccessLimits.AllowedGroups)
+                                    continue;
+                                estateSettings.AddEstateGroup(user);
+                                changed[(int)estateSettings.EstateID] = estateSettings;
+                            }
+                        }
+
+                        thisSettings.AddEstateGroup(user);
+                        changed[thisEstateID] = thisSettings;
+
+                        sendGroups[remote_client] = invoice;
+                    }
+                }
+
+                if ((estateAccessType & 32) != 0) // Group remove
+                {
+                    if (doOtherEstates) // All estates
+                    {
+                        foreach (EstateSettings estateSettings in otherEstates)
+                        {
+                            if(!isadmin && !estateSettings.IsEstateManagerOrOwner(agentID))
+                                continue;
+                            estateSettings.RemoveEstateGroup(user);
+                            changed[(int)estateSettings.EstateID] = estateSettings;
+                        }
+                    }
+
+                    thisSettings.RemoveEstateGroup(user);
+                    changed[thisEstateID] = thisSettings;
+
+                    sendGroups[remote_client] = invoice;
+                }
+
+                if ((estateAccessType & 64) != 0) // Ban add
+                {
+
+                    if(thisSettings.EstateBansCount() >= (int)Constants.EstateAccessLimits.EstateBans)
+                    {
+                        if(!sentBansFull)
+                        {
+                            sentBansFull = true;
+                            remote_client.SendAlertMessage("Estate Ban list is full");
+                        }
+                    }
+                    else
+                    {
+                        EstateBan[] banlistcheck = Scene.RegionInfo.EstateSettings.EstateBans;
+
+                        bool alreadyInList = false;
+
+                        for (int i = 0; i < banlistcheck.Length; i++)
+                        {
+                            if (user == banlistcheck[i].BannedUserID)
+                            {
+                                alreadyInList = true;
+                                break;
+                            }
+                        }
+                        if (!alreadyInList)
+                        {
+                            if (doOtherEstates) // All estates
+                            {
+                                foreach (EstateSettings estateSettings in otherEstates)
+                                {
+                                    if(!isadmin && !estateSettings.IsEstateManagerOrOwner(agentID))
+                                        continue;
+
+                                    if(estateSettings.EstateBansCount() >= (int)Constants.EstateAccessLimits.EstateBans)
+                                        continue;
+
+                                    EstateBan bitem = new EstateBan();
+
+                                    bitem.BannedUserID = user;
+                                    bitem.EstateID = estateSettings.EstateID;
+                                    bitem.BannedHostAddress = "0.0.0.0";
+                                    bitem.BannedHostIPMask = "0.0.0.0";
+
+                                    estateSettings.AddBan(bitem);
+                                    estateSettings.RemoveEstateUser(user);
+                                    changed[(int)estateSettings.EstateID] = estateSettings;
+                                }
+                            }
+
+                            EstateBan item = new EstateBan();
+
+                            item.BannedUserID = user;
+                            item.EstateID = Scene.RegionInfo.EstateSettings.EstateID;
+                            item.BannedHostAddress = "0.0.0.0";
+                            item.BannedHostIPMask = "0.0.0.0";
+
+                            thisSettings.AddBan(item);
+                            thisSettings.RemoveEstateUser(user);
+                            changed[thisEstateID] = thisSettings;
+
+                            ScenePresence s = Scene.GetScenePresence(user);
+                            if (s != null)
+                            {
+                                if (!s.IsChildAgent)
+                                {
+                                    if (!Scene.TeleportClientHome(user, s.ControllingClient))
+                                    {
+                                        s.ControllingClient.Kick("Your access to the region was revoked and TP home failed - you have been logged out.");
+                                        Scene.CloseAgent(s.UUID, false);
+                                    }
+                                }
+                            }
+                        }
+                        else
+                        {
+                            remote_client.SendAlertMessage("User is already on the region ban list");
+                        }
+                        //Scene.RegionInfo.regionBanlist.Add(Manager(user);
+                        if(needReply)
+                            sendAllowedOrBanList[remote_client] = invoice;
+                    }
+                }
+
+                if ((estateAccessType & 128) != 0) // Ban remove
                 {
                     EstateBan[] banlistcheck = Scene.RegionInfo.EstateSettings.EstateBans;
 
@@ -883,107 +1031,93 @@ namespace OpenSim.Region.CoreModules.World.Estate
                             break;
                         }
                     }
-                    
+
                     if (alreadyInList && listitem != null)
                     {
-                        if ((estateAccessType & 1) != 0) // All estates
+                        if (doOtherEstates) // All estates
                         {
-                            List<int> estateIDs = Scene.EstateDataService.GetEstatesByOwner(Scene.RegionInfo.EstateSettings.EstateOwner);
-                            EstateSettings estateSettings;
-
-                            foreach (int estateID in estateIDs)
+                            foreach (EstateSettings estateSettings in otherEstates)
                             {
-                                if (estateID != Scene.RegionInfo.EstateSettings.EstateID)
-                                {
-                                    estateSettings = Scene.EstateDataService.LoadEstateSettings(estateID);
-                                    estateSettings.RemoveBan(user);
-                                    Scene.EstateDataService.StoreEstateSettings(estateSettings);
-                                }
+                                if(!isadmin && !estateSettings.IsEstateManagerOrOwner(agentID))
+                                    continue;
+                                estateSettings.RemoveBan(user);
+                                changed[(int)estateSettings.EstateID] = estateSettings;
                             }
                         }
 
-                        Scene.RegionInfo.EstateSettings.RemoveBan(listitem.BannedUserID);
-                        Scene.EstateDataService.StoreEstateSettings(Scene.RegionInfo.EstateSettings);
-
-                        TriggerEstateInfoChange();
+                        thisSettings.RemoveBan(listitem.BannedUserID);
+                        changed[thisEstateID] = thisSettings;
                     }
                     else
                     {
                         remote_client.SendAlertMessage("User is not on the region ban list");
                     }
-                    
-                    //Scene.RegionInfo.regionBanlist.Add(Manager(user);
-                    remote_client.SendBannedUserList(invoice, Scene.RegionInfo.EstateSettings.EstateBans, Scene.RegionInfo.EstateSettings.EstateID);
-                }
-                else
-                {
-                    remote_client.SendAlertMessage("Method EstateAccessDelta Failed, you don't have permissions");
-                }
-            }
 
-            if ((estateAccessType & 256) != 0) // Manager add
-            {
-                if (Scene.Permissions.CanIssueEstateCommand(remote_client.AgentId, true))
+                    if(needReply)
+                        sendAllowedOrBanList[remote_client] = invoice;
+                }
+
+                // last the ones only for owners of this region
+                if (!Scene.Permissions.CanIssueEstateCommand(agentID, true))
                 {
-                    if ((estateAccessType & 1) != 0) // All estates
+                        remote_client.SendAlertMessage("Method EstateAccess Failed, you don't have permissions");
+                        continue;
+                }
+
+                if ((estateAccessType & 256) != 0) // Manager add
+                {
+                    if(thisSettings.EstateManagersCount() >= (int)Constants.EstateAccessLimits.EstateManagers)
                     {
-                        List<int> estateIDs = Scene.EstateDataService.GetEstatesByOwner(Scene.RegionInfo.EstateSettings.EstateOwner);
-                        EstateSettings estateSettings;
-
-                        foreach (int estateID in estateIDs)
+                        if(!sentManagersFull)
                         {
-                            if (estateID != Scene.RegionInfo.EstateSettings.EstateID)
+                            sentManagersFull = true;
+                            remote_client.SendAlertMessage("Estate Managers list is full");
+                         }
+                    }
+                    else
+                    {
+                        if (doOtherEstates) // All estates
+                        {
+                            foreach (EstateSettings estateSettings in otherEstates)
                             {
-                                estateSettings = Scene.EstateDataService.LoadEstateSettings(estateID);
+                                if(!isadmin && !estateSettings.IsEstateOwner(agentID)) // redundante check?
+                                    continue;
+                                if(estateSettings.EstateManagersCount() >= (int)Constants.EstateAccessLimits.EstateManagers)
+                                    continue;
                                 estateSettings.AddEstateManager(user);
-                                Scene.EstateDataService.StoreEstateSettings(estateSettings);
+                                changed[(int)estateSettings.EstateID] = estateSettings;
                             }
                         }
+
+                        thisSettings.AddEstateManager(user);
+                        changed[thisEstateID] = thisSettings;
+
+                        sendManagers[remote_client] = invoice;
                     }
-
-                    Scene.RegionInfo.EstateSettings.AddEstateManager(user);
-                    Scene.EstateDataService.StoreEstateSettings(Scene.RegionInfo.EstateSettings);
-
-                    TriggerEstateInfoChange();
-                    remote_client.SendEstateList(invoice, (int)Constants.EstateAccessCodex.EstateManagers, Scene.RegionInfo.EstateSettings.EstateManagers, Scene.RegionInfo.EstateSettings.EstateID);
                 }
-                else
-                {
-                    remote_client.SendAlertMessage("Method EstateAccessDelta Failed, you don't have permissions");
-                }
-            }
 
-            if ((estateAccessType & 512) != 0) // Manager remove
-            {
-                if (Scene.Permissions.CanIssueEstateCommand(remote_client.AgentId, true))
+                if ((estateAccessType & 512) != 0) // Manager remove
                 {
-                    if ((estateAccessType & 1) != 0) // All estates
+                    if (doOtherEstates) // All estates
                     {
-                        List<int> estateIDs = Scene.EstateDataService.GetEstatesByOwner(Scene.RegionInfo.EstateSettings.EstateOwner);
-                        EstateSettings estateSettings;
-
-                        foreach (int estateID in estateIDs)
+                        foreach (EstateSettings estateSettings in otherEstates)
                         {
-                            if (estateID != Scene.RegionInfo.EstateSettings.EstateID)
-                            {
-                                estateSettings = Scene.EstateDataService.LoadEstateSettings(estateID);
-                                estateSettings.RemoveEstateManager(user);
-                                Scene.EstateDataService.StoreEstateSettings(estateSettings);
-                            }
+                            if(!isadmin && !estateSettings.IsEstateOwner(agentID))
+                                continue;
+
+                            estateSettings.RemoveEstateManager(user);
+                            changed[(int)estateSettings.EstateID] = estateSettings;
                         }
                     }
 
-                    Scene.RegionInfo.EstateSettings.RemoveEstateManager(user);
-                    Scene.EstateDataService.StoreEstateSettings(Scene.RegionInfo.EstateSettings);
+                    thisSettings.RemoveEstateManager(user);
+                    changed[thisEstateID] = thisSettings;
 
-                    TriggerEstateInfoChange();
-                    remote_client.SendEstateList(invoice, (int)Constants.EstateAccessCodex.EstateManagers, Scene.RegionInfo.EstateSettings.EstateManagers, Scene.RegionInfo.EstateSettings.EstateID);
-                }
-                else
-                {
-                    remote_client.SendAlertMessage("Method EstateAccessDelta Failed, you don't have permissions");
+                    sendManagers[remote_client] = invoice;
                 }
             }
+            lock(deltareqLock)
+                runnigDeltaExec = false;
         }
 
         public void HandleOnEstateManageTelehub(IClientAPI client, UUID invoice, UUID senderID, string cmd, uint param1)
@@ -1035,7 +1169,7 @@ namespace OpenSim.Region.CoreModules.World.Estate
             IClientAPI remote_client, UUID invoice, UUID senderID, UUID sessionID, string senderName, string message)
         {
             IDialogModule dm = Scene.RequestModuleInterface<IDialogModule>();
-            
+
             if (dm != null)
                 dm.SendNotificationToUsersInRegion(senderID, senderName, message);
         }
@@ -1070,27 +1204,46 @@ namespace OpenSim.Region.CoreModules.World.Estate
             }
         }
 
-        private void handleEstateTeleportOneUserHomeRequest(IClientAPI remover_client, UUID invoice, UUID senderID, UUID prey)
+        private void handleEstateTeleportOneUserHomeRequest(IClientAPI remover_client, UUID invoice, UUID senderID, UUID prey, bool kick)
         {
+            if (prey == UUID.Zero)
+                return;
+
+             EstateTeleportOneUserHomeRequest evOverride = OnEstateTeleportOneUserHomeRequest;
+             if(evOverride != null)
+             {
+                evOverride(remover_client, invoice, senderID, prey, kick);
+                return;
+             }
+
             if (!Scene.Permissions.CanIssueEstateCommand(remover_client.AgentId, false))
                 return;
 
-            if (prey != UUID.Zero)
+            ScenePresence s = Scene.GetScenePresence(prey);
+            if (s != null && !s.IsDeleted && !s.IsInTransit)
             {
-                ScenePresence s = Scene.GetScenePresence(prey);
-                if (s != null)
+                if (kick)
                 {
-                    if (!Scene.TeleportClientHome(prey, s.ControllingClient))
-                    {
-                        s.ControllingClient.Kick("You were teleported home by the region owner, but the TP failed - you have been logged out.");
-                        Scene.CloseAgent(s.UUID, false);
-                    }
+                    s.ControllingClient.Kick("You have been kicked");
+                    Scene.CloseAgent(s.UUID, false);
+                }
+                else if (!Scene.TeleportClientHome(prey, s.ControllingClient))
+                {
+                    s.ControllingClient.Kick("You were teleported home by the region owner, but the TP failed ");
+                    Scene.CloseAgent(s.UUID, false);
                 }
             }
         }
 
         private void handleEstateTeleportAllUsersHomeRequest(IClientAPI remover_client, UUID invoice, UUID senderID)
         {
+             EstateTeleportAllUsersHomeRequest evOverride = OnEstateTeleportAllUsersHomeRequest;
+             if(evOverride != null)
+             {
+                evOverride(remover_client, invoice, senderID);
+                return;
+             }
+
             if (!Scene.Permissions.CanIssueEstateCommand(remover_client.AgentId, false))
                 return;
 
@@ -1112,7 +1265,7 @@ namespace OpenSim.Region.CoreModules.World.Estate
                 }
             });
         }
-        
+
         private void AbortTerrainXferHandler(IClientAPI remoteClient, ulong XferID)
         {
             lock (this)
@@ -1195,7 +1348,7 @@ namespace OpenSim.Region.CoreModules.World.Estate
                 if (TerrainUploader == null)
                 {
                     m_log.DebugFormat(
-                        "[TERRAIN]: Started receiving terrain upload for region {0} from {1}", 
+                        "[TERRAIN]: Started receiving terrain upload for region {0} from {1}",
                         Scene.Name, remote_client.Name);
 
                     TerrainUploader = new EstateTerrainXferHandler(remote_client, clientFileName);
@@ -1215,7 +1368,7 @@ namespace OpenSim.Region.CoreModules.World.Estate
         {
             // Save terrain here
             ITerrainModule terr = Scene.RequestModuleInterface<ITerrainModule>();
-            
+
             if (terr != null)
             {
 //                m_log.Warn("[CLIENT]: Got Request to Send Terrain in region " + Scene.RegionInfo.RegionName);
@@ -1225,15 +1378,24 @@ namespace OpenSim.Region.CoreModules.World.Estate
                 }
                 terr.SaveToFile(Util.dataDir() + "/terrain.raw");
 
-                FileStream input = new FileStream(Util.dataDir() + "/terrain.raw", FileMode.Open);
-                byte[] bdata = new byte[input.Length];
-                input.Read(bdata, 0, (int)input.Length);
+                byte[] bdata;
+                using(FileStream input = new FileStream(Util.dataDir() + "/terrain.raw",FileMode.Open))
+                {
+                    bdata = new byte[input.Length];
+                    input.Read(bdata, 0, (int)input.Length);
+                }
+                if(bdata == null || bdata.Length == 0)
+                {
+                    remote_client.SendAlertMessage("Terrain error");
+                    return;
+                }
+
                 remote_client.SendAlertMessage("Terrain file written, starting download...");
-                Scene.XferManager.AddNewFile("terrain.raw", bdata);
+                string xfername = (UUID.Random()).ToString();
+                Scene.XferManager.AddNewFile(xfername, bdata);
 
                 m_log.DebugFormat("[CLIENT]: Sending terrain for region {0} to {1}", Scene.Name, remote_client.Name);
-
-                remote_client.SendInitiateDownload("terrain.raw", clientFileName);
+                remote_client.SendInitiateDownload(xfername, clientFileName);
             }
         }
 
@@ -1242,7 +1404,7 @@ namespace OpenSim.Region.CoreModules.World.Estate
            RegionInfoForEstateMenuArgs args = new RegionInfoForEstateMenuArgs();
            args.billableFactor = Scene.RegionInfo.EstateSettings.BillableFactor;
            args.estateID = Scene.RegionInfo.EstateSettings.EstateID;
-           args.maxAgents = (byte)Scene.RegionInfo.RegionSettings.AgentLimit;
+           args.maxAgents = Scene.RegionInfo.RegionSettings.AgentLimit;
            args.objectBonusFactor = (float)Scene.RegionInfo.RegionSettings.ObjectBonus;
            args.parentEstateID = Scene.RegionInfo.EstateSettings.ParentEstateID;
            args.pricePerMeter = Scene.RegionInfo.EstateSettings.PricePerMeter;
@@ -1257,6 +1419,8 @@ namespace OpenSim.Region.CoreModules.World.Estate
            args.waterHeight = (float)Scene.RegionInfo.RegionSettings.WaterHeight;
            args.simName = Scene.RegionInfo.RegionName;
            args.regionType = Scene.RegionInfo.RegionType;
+           args.AgentCapacity = Scene.RegionInfo.AgentCapacity;
+           args.ObjectsCapacity = Scene.RegionInfo.ObjectCapacity;
 
            remote_client.SendRegionInfoToEstateMenu(args);
         }
@@ -1347,7 +1511,8 @@ namespace OpenSim.Region.CoreModules.World.Estate
 
         public void sendRegionInfoPacketToAll()
         {
-            Scene.ForEachRootClient(delegate(IClientAPI client)
+//            Scene.ForEachRootClient(delegate(IClientAPI client)
+            Scene.ForEachClient(delegate(IClientAPI client)
             {
                 HandleRegionInfoRequest(client);
             });
@@ -1355,42 +1520,7 @@ namespace OpenSim.Region.CoreModules.World.Estate
 
         public void sendRegionHandshake(IClientAPI remoteClient)
         {
-            RegionHandshakeArgs args = new RegionHandshakeArgs();
-
-            args.isEstateManager = Scene.RegionInfo.EstateSettings.IsEstateManagerOrOwner(remoteClient.AgentId);
-            if (Scene.RegionInfo.EstateSettings.EstateOwner != UUID.Zero && Scene.RegionInfo.EstateSettings.EstateOwner == remoteClient.AgentId)
-                args.isEstateManager = true;
-
-            args.billableFactor = Scene.RegionInfo.EstateSettings.BillableFactor;
-            args.terrainStartHeight0 = (float)Scene.RegionInfo.RegionSettings.Elevation1SW;
-            args.terrainHeightRange0 = (float)Scene.RegionInfo.RegionSettings.Elevation2SW;
-            args.terrainStartHeight1 = (float)Scene.RegionInfo.RegionSettings.Elevation1NW;
-            args.terrainHeightRange1 = (float)Scene.RegionInfo.RegionSettings.Elevation2NW;
-            args.terrainStartHeight2 = (float)Scene.RegionInfo.RegionSettings.Elevation1SE;
-            args.terrainHeightRange2 = (float)Scene.RegionInfo.RegionSettings.Elevation2SE;
-            args.terrainStartHeight3 = (float)Scene.RegionInfo.RegionSettings.Elevation1NE;
-            args.terrainHeightRange3 = (float)Scene.RegionInfo.RegionSettings.Elevation2NE;
-            args.simAccess = Scene.RegionInfo.AccessLevel;
-            args.waterHeight = (float)Scene.RegionInfo.RegionSettings.WaterHeight;
-            args.regionFlags = GetRegionFlags();
-            args.regionName = Scene.RegionInfo.RegionName;
-            args.SimOwner = Scene.RegionInfo.EstateSettings.EstateOwner;
-
-            args.terrainBase0 = UUID.Zero;
-            args.terrainBase1 = UUID.Zero;
-            args.terrainBase2 = UUID.Zero;
-            args.terrainBase3 = UUID.Zero;
-            args.terrainDetail0 = Scene.RegionInfo.RegionSettings.TerrainTexture1;
-            args.terrainDetail1 = Scene.RegionInfo.RegionSettings.TerrainTexture2;
-            args.terrainDetail2 = Scene.RegionInfo.RegionSettings.TerrainTexture3;
-            args.terrainDetail3 = Scene.RegionInfo.RegionSettings.TerrainTexture4;
-
-//            m_log.DebugFormat("[ESTATE MANAGEMENT MODULE]: Sending terrain texture 1 {0} for region {1}", args.terrainDetail0, Scene.RegionInfo.RegionName);
-//            m_log.DebugFormat("[ESTATE MANAGEMENT MODULE]: Sending terrain texture 2 {0} for region {1}", args.terrainDetail1, Scene.RegionInfo.RegionName);
-//            m_log.DebugFormat("[ESTATE MANAGEMENT MODULE]: Sending terrain texture 3 {0} for region {1}", args.terrainDetail2, Scene.RegionInfo.RegionName);
-//            m_log.DebugFormat("[ESTATE MANAGEMENT MODULE]: Sending terrain texture 4 {0} for region {1}", args.terrainDetail3, Scene.RegionInfo.RegionName);
-
-            remoteClient.SendRegionHandshake(Scene.RegionInfo,args);
+            remoteClient.SendRegionHandshake();
         }
 
         public void handleEstateChangeInfo(IClientAPI remoteClient, UUID invoice, UUID senderID, UInt32 parms1, UInt32 parms2)
@@ -1407,20 +1537,21 @@ namespace OpenSim.Region.CoreModules.World.Estate
                 // Warning: FixedSun should be set to True, otherwise this sun position won't be used.
             }
 
-            if ((parms1 & 0x00000010) != 0)
-                Scene.RegionInfo.EstateSettings.FixedSun = true;
-            else
-                Scene.RegionInfo.EstateSettings.FixedSun = false;
-
             if ((parms1 & 0x00008000) != 0)
                 Scene.RegionInfo.EstateSettings.PublicAccess = true;
             else
                 Scene.RegionInfo.EstateSettings.PublicAccess = false;
 
-            if ((parms1 & 0x10000000) != 0)
-                Scene.RegionInfo.EstateSettings.AllowVoice = true;
+            if ((parms1 & 0x00000010) != 0)
+                Scene.RegionInfo.EstateSettings.FixedSun = true;
             else
-                Scene.RegionInfo.EstateSettings.AllowVoice = false;
+                Scene.RegionInfo.EstateSettings.FixedSun = false;
+
+            // taxfree is now AllowAccessOverride
+            if ((parms1 & 0x00000020) != 0)
+                Scene.RegionInfo.EstateSettings.TaxFree = true;
+            else
+                Scene.RegionInfo.EstateSettings.TaxFree = false;
 
             if ((parms1 & 0x00100000) != 0)
                 Scene.RegionInfo.EstateSettings.AllowDirectTeleport = true;
@@ -1432,15 +1563,22 @@ namespace OpenSim.Region.CoreModules.World.Estate
             else
                 Scene.RegionInfo.EstateSettings.DenyAnonymous = false;
 
+            // no longer in used, may be reassigned
             if ((parms1 & 0x01000000) != 0)
                 Scene.RegionInfo.EstateSettings.DenyIdentified = true;
             else
                 Scene.RegionInfo.EstateSettings.DenyIdentified = false;
 
+            // no longer in used, may be reassigned
             if ((parms1 & 0x02000000) != 0)
                 Scene.RegionInfo.EstateSettings.DenyTransacted = true;
             else
                 Scene.RegionInfo.EstateSettings.DenyTransacted = false;
+
+            if ((parms1 & 0x10000000) != 0)
+                Scene.RegionInfo.EstateSettings.AllowVoice = true;
+            else
+                Scene.RegionInfo.EstateSettings.AllowVoice = false;
 
             if ((parms1 & 0x40000000) != 0)
                 Scene.RegionInfo.EstateSettings.DenyMinors = true;
@@ -1471,7 +1609,7 @@ namespace OpenSim.Region.CoreModules.World.Estate
                     Scene.RegionInfo.EstateSettings.FixedSun,
                     (float)Scene.RegionInfo.EstateSettings.SunPosition);
 
-            sendRegionInfoPacketToAll();
+//            sendRegionInfoPacketToAll(); already done by setRegionTerrainSettings
         }
 
 
@@ -1502,7 +1640,6 @@ namespace OpenSim.Region.CoreModules.World.Estate
             client.OnRegionInfoRequest += HandleRegionInfoRequest;
             client.OnEstateCovenantRequest += HandleEstateCovenantRequest;
             client.OnLandStatRequest += HandleLandStatRequest;
-            sendRegionHandshake(client);
         }
 
 
@@ -1510,39 +1647,43 @@ namespace OpenSim.Region.CoreModules.World.Estate
         {
             RegionFlags flags = RegionFlags.None;
 
-            if (Scene.RegionInfo.EstateSettings.FixedSun)
-                flags |= RegionFlags.SunFixed;
-            if (Scene.RegionInfo.EstateSettings.PublicAccess)
-                flags |= (RegionFlags.PublicAllowed |
-                          RegionFlags.ExternallyVisible);
-            if (Scene.RegionInfo.EstateSettings.AllowVoice)
-                flags |= RegionFlags.AllowVoice;
-            if (Scene.RegionInfo.EstateSettings.AllowDirectTeleport)
-                flags |= RegionFlags.AllowDirectTeleport;
-            if (Scene.RegionInfo.EstateSettings.DenyAnonymous)
-                flags |= RegionFlags.DenyAnonymous;
-            if (Scene.RegionInfo.EstateSettings.DenyIdentified)
-                flags |= RegionFlags.DenyIdentified;
-            if (Scene.RegionInfo.EstateSettings.DenyTransacted)
-                flags |= RegionFlags.DenyTransacted;
-            if (Scene.RegionInfo.EstateSettings.AbuseEmailToEstateOwner)
-                flags |= RegionFlags.AbuseEmailToEstateOwner;
-            if (Scene.RegionInfo.EstateSettings.BlockDwell)
-                flags |= RegionFlags.BlockDwell;
-            if (Scene.RegionInfo.EstateSettings.EstateSkipScripts)
-                flags |= RegionFlags.EstateSkipScripts;
-            if (Scene.RegionInfo.EstateSettings.ResetHomeOnTeleport)
-                flags |= RegionFlags.ResetHomeOnTeleport;
-            if (Scene.RegionInfo.EstateSettings.TaxFree)
-                flags |= RegionFlags.TaxFree;
             if (Scene.RegionInfo.EstateSettings.AllowLandmark)
                 flags |= RegionFlags.AllowLandmark;
-            if (Scene.RegionInfo.EstateSettings.AllowParcelChanges)
-                flags |= RegionFlags.AllowParcelChanges;
             if (Scene.RegionInfo.EstateSettings.AllowSetHome)
                 flags |= RegionFlags.AllowSetHome;
+            if (Scene.RegionInfo.EstateSettings.ResetHomeOnTeleport)
+                flags |= RegionFlags.ResetHomeOnTeleport;
+            if (Scene.RegionInfo.EstateSettings.FixedSun)
+                flags |= RegionFlags.SunFixed;
+            if (Scene.RegionInfo.EstateSettings.TaxFree) // this is now wrong means ALLOW_ACCESS_OVERRIDE
+                flags |= RegionFlags.TaxFree;
+
+            if (Scene.RegionInfo.EstateSettings.PublicAccess) //??
+                flags |= (RegionFlags.PublicAllowed | RegionFlags.ExternallyVisible);
+
+            if (Scene.RegionInfo.EstateSettings.BlockDwell)
+                flags |= RegionFlags.BlockDwell;
+            if (Scene.RegionInfo.EstateSettings.AllowDirectTeleport)
+                flags |= RegionFlags.AllowDirectTeleport;
+            if (Scene.RegionInfo.EstateSettings.EstateSkipScripts)
+                flags |= RegionFlags.EstateSkipScripts;
+
+            if (Scene.RegionInfo.EstateSettings.DenyAnonymous)
+                flags |= RegionFlags.DenyAnonymous;
+            if (Scene.RegionInfo.EstateSettings.DenyIdentified) // unused?
+                flags |= RegionFlags.DenyIdentified;
+            if (Scene.RegionInfo.EstateSettings.DenyTransacted) // unused?
+                flags |= RegionFlags.DenyTransacted;
+            if (Scene.RegionInfo.EstateSettings.AllowParcelChanges)
+                flags |= RegionFlags.AllowParcelChanges;
+            if (Scene.RegionInfo.EstateSettings.AbuseEmailToEstateOwner) // now is block fly
+                flags |= RegionFlags.AbuseEmailToEstateOwner;
+            if (Scene.RegionInfo.EstateSettings.AllowVoice)
+                flags |= RegionFlags.AllowVoice;
+
+
             if (Scene.RegionInfo.EstateSettings.DenyMinors)
-                flags |= (RegionFlags)(1 << 30);
+                flags |= RegionFlags.DenyAgeUnverified;
 
             return (uint)flags;
         }

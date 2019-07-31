@@ -60,9 +60,9 @@ namespace OpenSim.Server.Handlers.Avatar
         protected override byte[] ProcessRequest(string path, Stream requestData,
                 IOSHttpRequest httpRequest, IOSHttpResponse httpResponse)
         {
-            StreamReader sr = new StreamReader(requestData);
-            string body = sr.ReadToEnd();
-            sr.Close();
+            string body;
+            using(StreamReader sr = new StreamReader(requestData))
+                body = sr.ReadToEnd();
             body = body.Trim();
 
             //m_log.DebugFormat("[XXX]: query String: {0}", body);
@@ -175,7 +175,7 @@ namespace OpenSim.Server.Handlers.Avatar
             request.Remove("METHOD");
             request.Remove("UserID");
         }
-        
+
         byte[] SetItems(Dictionary<string, object> request)
         {
             UUID user = UUID.Zero;
@@ -196,7 +196,7 @@ namespace OpenSim.Server.Handlers.Avatar
             names = _names.ToArray();
             List<string> _values = (List<string>)request["Values"];
             values = _values.ToArray();
-            
+
             if (m_AvatarService.SetItems(user, names, values))
                 return SuccessResult();
 
@@ -227,7 +227,7 @@ namespace OpenSim.Server.Handlers.Avatar
         }
 
 
-        
+
         private byte[] SuccessResult()
         {
             XmlDocument doc = new XmlDocument();

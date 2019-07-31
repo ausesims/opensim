@@ -65,10 +65,10 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
         /// </summary>
         // private UUID EconomyBaseAccount = UUID.Zero;
 
-        private float EnergyEfficiency = 0f;
+        private float EnergyEfficiency = 1f;
         // private ObjectPaid handerOnObjectPaid;
         private bool m_enabled = true;
-        private bool m_sellEnabled = false;
+        private bool m_sellEnabled = true;
 
         private IConfigSource m_gConfig;
 
@@ -85,12 +85,12 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
 
         private int ObjectCount = 0;
         private int PriceEnergyUnit = 0;
-        private int PriceGroupCreate = 0;
+        private int PriceGroupCreate = -1;
         private int PriceObjectClaim = 0;
         private float PriceObjectRent = 0f;
-        private float PriceObjectScaleFactor = 0f;
+        private float PriceObjectScaleFactor = 10f;
         private int PriceParcelClaim = 0;
-        private float PriceParcelClaimFactor = 0f;
+        private float PriceParcelClaimFactor = 1f;
         private int PriceParcelRent = 0;
         private int PricePublicObjectDecay = 0;
         private int PricePublicObjectDelete = 0;
@@ -98,7 +98,7 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
         private int PriceUpload = 0;
         private int TeleportMinPrice = 0;
 
-        private float TeleportPriceExponent = 0f;
+        private float TeleportPriceExponent = 2f;
 
 
         #region IMoneyModule Members
@@ -124,13 +124,7 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
         public void Initialise(IConfigSource config)
         {
             m_gConfig = config;
-
-            IConfig startupConfig = m_gConfig.Configs["Startup"];
-            IConfig economyConfig = m_gConfig.Configs["Economy"];
-
-
-            ReadConfigAndPopulate(startupConfig, "Startup");
-            ReadConfigAndPopulate(economyConfig, "Economy");
+            ReadConfigAndPopulate();
         }
 
         public void AddRegion(Scene scene)
@@ -151,13 +145,13 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
                         // to the command line parameters you use to start up your client
                         // This commonly looks like -helperuri http://127.0.0.1:9000/
 
-                       
+
                         // Local Server..  enables functionality only.
                         httpServer.AddXmlRPCHandler("getCurrencyQuote", quote_func);
                         httpServer.AddXmlRPCHandler("buyCurrency", buy_func);
                         httpServer.AddXmlRPCHandler("preflightBuyLandPrep", preflightBuyLandPrep_func);
                         httpServer.AddXmlRPCHandler("buyLandPrep", landBuy_func);
-                       
+
                     }
 
                     if (m_scenel.ContainsKey(scene.RegionInfo.RegionHandle))
@@ -212,7 +206,7 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
 
             bool give_result = doMoneyTransfer(fromID, toID, amount, 2, description);
 
-            
+
             BalanceUpdate(fromID, toID, give_result, description);
 
             return give_result;
@@ -241,35 +235,51 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
         /// <summary>
         /// Parse Configuration
         /// </summary>
-        /// <param name="scene"></param>
-        /// <param name="startupConfig"></param>
-        /// <param name="config"></param>
-        private void ReadConfigAndPopulate(IConfig startupConfig, string config)
+        private void ReadConfigAndPopulate()
         {
-            if (config == "Startup" && startupConfig != null)
+            // we are enabled by default
+
+            IConfig startupConfig = m_gConfig.Configs["Startup"];
+
+            if(startupConfig == null) // should not happen
+                return;
+
+            IConfig economyConfig = m_gConfig.Configs["Economy"];
+
+            // economymodule may be at startup or Economy (legacy)
+            string mmodule = startupConfig.GetString("economymodule","");
+            if(String.IsNullOrEmpty(mmodule))
             {
-                m_enabled = (startupConfig.GetString("economymodule", "BetaGridLikeMoneyModule") == "BetaGridLikeMoneyModule");
+                if(economyConfig != null)
+                    mmodule = economyConfig.GetString("economymodule","");
             }
 
-            if (config == "Economy" && startupConfig != null)
+            if(!String.IsNullOrEmpty(mmodule) && mmodule != Name)
             {
-                PriceEnergyUnit = startupConfig.GetInt("PriceEnergyUnit", 100);
-                PriceObjectClaim = startupConfig.GetInt("PriceObjectClaim", 10);
-                PricePublicObjectDecay = startupConfig.GetInt("PricePublicObjectDecay", 4);
-                PricePublicObjectDelete = startupConfig.GetInt("PricePublicObjectDelete", 4);
-                PriceParcelClaim = startupConfig.GetInt("PriceParcelClaim", 1);
-                PriceParcelClaimFactor = startupConfig.GetFloat("PriceParcelClaimFactor", 1f);
-                PriceUpload = startupConfig.GetInt("PriceUpload", 0);
-                PriceRentLight = startupConfig.GetInt("PriceRentLight", 5);
-                TeleportMinPrice = startupConfig.GetInt("TeleportMinPrice", 2);
-                TeleportPriceExponent = startupConfig.GetFloat("TeleportPriceExponent", 2f);
-                EnergyEfficiency = startupConfig.GetFloat("EnergyEfficiency", 1);
-                PriceObjectRent = startupConfig.GetFloat("PriceObjectRent", 1);
-                PriceObjectScaleFactor = startupConfig.GetFloat("PriceObjectScaleFactor", 10);
-                PriceParcelRent = startupConfig.GetInt("PriceParcelRent", 1);
-                PriceGroupCreate = startupConfig.GetInt("PriceGroupCreate", -1);
-                m_sellEnabled = startupConfig.GetBoolean("SellEnabled", false);
+                // some other money module selected
+                m_enabled = false;
+                return;
             }
+            
+            if(economyConfig == null)
+                return;
+
+            PriceEnergyUnit = economyConfig.GetInt("PriceEnergyUnit", 0);
+            PriceObjectClaim = economyConfig.GetInt("PriceObjectClaim", 0);
+            PricePublicObjectDecay = economyConfig.GetInt("PricePublicObjectDecay", 4);
+            PricePublicObjectDelete = economyConfig.GetInt("PricePublicObjectDelete", 0);
+            PriceParcelClaim = economyConfig.GetInt("PriceParcelClaim", 0);
+            PriceParcelClaimFactor = economyConfig.GetFloat("PriceParcelClaimFactor", 1f);
+            PriceUpload = economyConfig.GetInt("PriceUpload", 0);
+            PriceRentLight = economyConfig.GetInt("PriceRentLight", 0);
+            TeleportMinPrice = economyConfig.GetInt("TeleportMinPrice", 0);
+            TeleportPriceExponent = economyConfig.GetFloat("TeleportPriceExponent", 2f);
+            EnergyEfficiency = economyConfig.GetFloat("EnergyEfficiency", 1);
+            PriceObjectRent = economyConfig.GetFloat("PriceObjectRent", 0);
+            PriceObjectScaleFactor = economyConfig.GetFloat("PriceObjectScaleFactor", 10);
+            PriceParcelRent = economyConfig.GetInt("PriceParcelRent", 0);
+            PriceGroupCreate = economyConfig.GetInt("PriceGroupCreate", -1);
+            m_sellEnabled = economyConfig.GetBoolean("SellEnabled", true);
         }
 
         private void GetClientFunds(IClientAPI client)
@@ -303,7 +313,7 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
         private bool doMoneyTransfer(UUID Sender, UUID Receiver, int amount, int transactiontype, string description)
         {
             bool result = true;
-            
+
             return result;
         }
 
@@ -377,10 +387,10 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
             else
             {
                 m_log.ErrorFormat(
-                    "[MONEY]: Could not resolve user {0}", 
+                    "[MONEY]: Could not resolve user {0}",
                     agentID);
             }
-            
+
             return String.Empty;
         }
 
@@ -464,7 +474,7 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
             Hashtable quoteResponse = new Hashtable();
             XmlRpcResponse returnval = new XmlRpcResponse();
 
-            
+
             Hashtable currencyResponse = new Hashtable();
             currencyResponse.Add("estimatedCost", 0);
             currencyResponse.Add("currencyBuy", amount);
@@ -475,7 +485,7 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
 
             returnval.Value = quoteResponse;
             return returnval;
-            
+
 
 
         }
@@ -485,7 +495,7 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
             // Hashtable requestData = (Hashtable) request.Params[0];
             // UUID agentId = UUID.Zero;
             // int amount = 0;
-           
+
             XmlRpcResponse returnval = new XmlRpcResponse();
             Hashtable returnresp = new Hashtable();
             returnresp.Add("success", true);
@@ -536,7 +546,7 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
 
             // UUID agentId = UUID.Zero;
             // int amount = 0;
-           
+
             retparam.Add("success", true);
             ret.Value = retparam;
 
@@ -553,7 +563,7 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
         /// <param name="agentID"></param>
         private void CheckExistAndRefreshFunds(UUID agentID)
         {
-            
+
         }
 
         /// <summary>
@@ -564,13 +574,13 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
         private int GetFundsForAgentID(UUID AgentID)
         {
             int returnfunds = 0;
-            
+
             return returnfunds;
         }
 
         // private void SetLocalFundsForAgentID(UUID AgentID, int amount)
         // {
-            
+
         // }
 
         #endregion
@@ -689,7 +699,7 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
         /// <see cref="OpenSim.Region.Framework.Scenes.EventManager.ClientClosed"/>
         public void ClientClosed(UUID AgentID, Scene scene)
         {
-            
+
         }
 
         /// <summary>
@@ -708,19 +718,19 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
 
         private void ValidateLandBuy(Object osender, EventManager.LandBuyArgs e)
         {
-            
-            
+
+
             lock (e)
             {
                 e.economyValidated = true;
             }
-       
-            
+
+
         }
 
         private void processLandBuy(Object osender, EventManager.LandBuyArgs e)
         {
-            
+
         }
 
         /// <summary>
@@ -730,7 +740,7 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
         /// <param name="e"></param>
         private void MoneyTransferAction(Object osender, EventManager.MoneyTransferArgs e)
         {
-            
+
         }
 
         /// <summary>
@@ -739,7 +749,7 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
         /// <param name="avatar"></param>
         private void MakeChildAgent(ScenePresence avatar)
         {
-            
+
         }
 
         /// <summary>
@@ -748,7 +758,7 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
         /// <param name="AgentId"></param>
         private void ClientLoggedOut(UUID AgentId, Scene scene)
         {
-            
+
         }
 
         /// <summary>
@@ -768,7 +778,7 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
         /// <param name="regionID"></param>
         private void AvatarEnteringParcel(ScenePresence avatar, int localLandID, UUID regionID)
         {
-            
+
             //m_log.Info("[FRIEND]: " + avatar.Name + " status:" + (!avatar.IsChildAgent).ToString());
         }
 
@@ -809,12 +819,12 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
 
             Scene s = LocateSceneClientIn(remoteClient.AgentId);
 
-            // Implmenting base sale data checking here so the default OpenSimulator implementation isn't useless 
+            // Implmenting base sale data checking here so the default OpenSimulator implementation isn't useless
             // combined with other implementations.  We're actually validating that the client is sending the data
             // that it should.   In theory, the client should already know what to send here because it'll see it when it
-            // gets the object data.   If the data sent by the client doesn't match the object, the viewer probably has an 
-            // old idea of what the object properties are.   Viewer developer Hazim informed us that the base module 
-            // didn't check the client sent data against the object do any.   Since the base modules are the 
+            // gets the object data.   If the data sent by the client doesn't match the object, the viewer probably has an
+            // old idea of what the object properties are.   Viewer developer Hazim informed us that the base module
+            // didn't check the client sent data against the object do any.   Since the base modules are the
             // 'crowning glory' examples of good practice..
 
             // Validate that the object exists in the scene the user is in
@@ -824,15 +834,15 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
                 remoteClient.SendAgentAlertMessage("Unable to buy now. The object was not found.", false);
                 return;
             }
-            
-            // Validate that the client sent the price that the object is being sold for 
+
+            // Validate that the client sent the price that the object is being sold for
             if (part.SalePrice != salePrice)
             {
                 remoteClient.SendAgentAlertMessage("Cannot buy at this price. Buy Failed. If you continue to get this relog.", false);
                 return;
             }
 
-            // Validate that the client sent the proper sale type the object has set 
+            // Validate that the client sent the proper sale type the object has set
             if (part.ObjectSaleType != saleType)
             {
                 remoteClient.SendAgentAlertMessage("Cannot buy this way. Buy Failed. If you continue to get this relog.", false);
@@ -844,8 +854,13 @@ namespace OpenSim.Region.OptionalModules.World.MoneyModule
                 module.BuyObject(remoteClient, categoryID, localID, saleType, salePrice);
         }
 
-        public void MoveMoney(UUID fromAgentID, UUID toAgentID, int amount, string text)
+        public void MoveMoney(UUID fromUser, UUID toUser, int amount, string text)
         {
+        }
+
+        public bool MoveMoney(UUID fromUser, UUID toUser, int amount, MoneyTransactionType type, string text)
+        {
+            return true;
         }
     }
 

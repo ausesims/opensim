@@ -178,14 +178,14 @@ namespace OpenSim.Server.Handlers.Authentication
 ";
 
         /// <summary>Page shown for an invalid OpenID identity</summary>
-        const string INVALID_OPENID_PAGE = 
+        const string INVALID_OPENID_PAGE =
 @"<html><head><title>Identity not found</title></head>
 <body>Invalid OpenID identity</body></html>";
 
         /// <summary>Page shown if the OpenID endpoint is requested directly</summary>
         const string ENDPOINT_PAGE =
 @"<html><head><title>OpenID Endpoint</title></head><body>
-This is an OpenID server endpoint, not a human-readable resource. 
+This is an OpenID server endpoint, not a human-readable resource.
 For more information, see <a href='http://openid.net/'>http://openid.net/</a>.
 </body></html>";
 
@@ -222,7 +222,10 @@ For more information, see <a href='http://openid.net/'>http://openid.net/</a>.
 
             try
             {
-                NameValueCollection postQuery = HttpUtility.ParseQueryString(new StreamReader(httpRequest.InputStream).ReadToEnd());
+                string forPost;
+                using(StreamReader sr = new StreamReader(httpRequest.InputStream))
+                    forPost = sr.ReadToEnd();
+                NameValueCollection postQuery = HttpUtility.ParseQueryString(forPost);
                 NameValueCollection getQuery = HttpUtility.ParseQueryString(httpRequest.Url.Query);
                 NameValueCollection openIdQuery = (postQuery.GetValues("openid.mode") != null ? postQuery : getQuery);
 
@@ -241,7 +244,7 @@ For more information, see <a href='http://openid.net/'>http://openid.net/</a>.
                             // Check for form POST data
                             if (passwordValues != null && passwordValues.Length == 1)
                             {
-                                if (account != null && 
+                                if (account != null &&
                                     (m_authenticationService.Authenticate(account.PrincipalID,Util.Md5Hash(passwordValues[0]), 30) != string.Empty))
                                     authRequest.IsAuthenticated = true;
                                 else

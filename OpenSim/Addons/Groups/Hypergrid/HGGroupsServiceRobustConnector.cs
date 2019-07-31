@@ -64,8 +64,8 @@ namespace OpenSim.Groups
 
             m_log.DebugFormat("[Groups.RobustHGConnector]: Starting with config name {0}", m_ConfigName);
 
-            string homeURI = Util.GetConfigVarFromSections<string>(config, "HomeURI", 
-                new string[] { "Startup", "Hypergrid", m_ConfigName}, string.Empty); 
+            string homeURI = Util.GetConfigVarFromSections<string>(config, "HomeURI",
+                new string[] { "Startup", "Hypergrid", m_ConfigName}, string.Empty);
             if (homeURI == string.Empty)
                 throw new Exception(String.Format("[Groups.RobustHGConnector]: please provide the HomeURI [Startup] or in section {0}", m_ConfigName));
 
@@ -115,9 +115,10 @@ namespace OpenSim.Groups
         protected override byte[] ProcessRequest(string path, Stream requestData,
                 IOSHttpRequest httpRequest, IOSHttpResponse httpResponse)
         {
-            StreamReader sr = new StreamReader(requestData);
-            string body = sr.ReadToEnd();
-            sr.Close();
+            string body;
+            using(StreamReader sr = new StreamReader(requestData))
+                body = sr.ReadToEnd();
+
             body = body.Trim();
 
             //m_log.DebugFormat("[XXX]: query String: {0}", body);

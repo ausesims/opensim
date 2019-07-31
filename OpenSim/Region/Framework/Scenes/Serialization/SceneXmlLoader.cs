@@ -53,10 +53,12 @@ namespace OpenSim.Region.Framework.Scenes.Serialization
 
             if (fileName.StartsWith("http:") || File.Exists(fileName))
             {
-                XmlTextReader reader = new XmlTextReader(fileName);
-                reader.WhitespaceHandling = WhitespaceHandling.None;
-                doc.Load(reader);
-                reader.Close();
+                using(XmlTextReader reader = new XmlTextReader(fileName))
+                {
+                    reader.WhitespaceHandling = WhitespaceHandling.None;
+
+                    doc.Load(reader);
+                }
                 rootNode = doc.FirstChild;
                 foreach (XmlNode aPrimNode in rootNode.ChildNodes)
                 {
@@ -70,6 +72,7 @@ namespace OpenSim.Region.Framework.Scenes.Serialization
                     //obj.RegenerateFullIDs();
 
                     scene.AddNewSceneObject(obj, true);
+                    obj.InvalidateDeepEffectivePerms();
                 }
             }
             else
@@ -189,7 +192,7 @@ namespace OpenSim.Region.Framework.Scenes.Serialization
             XmlTextWriter writer = new XmlTextWriter(stream);
 
             int primCount = 0;
-            stream.WriteLine("<scene>\n");
+            stream.WriteLine("<scene>");
 
             foreach (EntityBase ent in entityList)
             {
@@ -207,13 +210,13 @@ namespace OpenSim.Region.Framework.Scenes.Serialization
 
                     //stream.WriteLine(SceneObjectSerializer.ToXml2Format(g));
                     SceneObjectSerializer.SOGToXml2(writer, (SceneObjectGroup)ent, new Dictionary<string,object>());
-                    stream.WriteLine();
+//                    stream.WriteLine();
 
                     primCount++;
                 }
             }
 
-            stream.WriteLine("</scene>\n");
+            stream.WriteLine("</scene>");
             stream.Flush();
         }
 
@@ -265,6 +268,7 @@ namespace OpenSim.Region.Framework.Scenes.Serialization
             foreach (XmlNode aPrimNode in rootNode.ChildNodes)
             {
                 SceneObjectGroup obj = DeserializeGroupFromXml2(aPrimNode.OuterXml);
+                scene.AddNewSceneObject(obj, true);
                 if (startScripts)
                     sceneObjects.Add(obj);
             }

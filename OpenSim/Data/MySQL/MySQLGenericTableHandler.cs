@@ -29,18 +29,16 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Reflection;
-using log4net;
+using System.Text;
 using MySql.Data.MySqlClient;
 using OpenMetaverse;
-using OpenSim.Framework;
-using OpenSim.Region.Framework.Interfaces;
 
 namespace OpenSim.Data.MySQL
 {
     public class MySQLGenericTableHandler<T> : MySqlFramework where T: class, new()
     {
 //        private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
-        
+
         protected Dictionary<string, FieldInfo> m_Fields =
                 new Dictionary<string, FieldInfo>();
 
@@ -53,14 +51,27 @@ namespace OpenSim.Data.MySQL
             get { return GetType().Assembly; }
         }
 
+        public MySQLGenericTableHandler(MySqlTransaction trans,
+                string realm, string storeName) : base(trans)
+        {
+            m_Realm = realm;
+
+            CommonConstruct(storeName);
+        }
+
         public MySQLGenericTableHandler(string connectionString,
                 string realm, string storeName) : base(connectionString)
         {
             m_Realm = realm;
-            m_connectionString = connectionString;
-            
+
+            CommonConstruct(storeName);
+        }
+
+        protected void CommonConstruct(string storeName)
+        {
             if (storeName != String.Empty)
             {
+                // We always use a new connection for any Migrations
                 using (MySqlConnection dbcon = new MySqlConnection(m_connectionString))
                 {
                     dbcon.Open();
@@ -111,101 +122,129 @@ namespace OpenSim.Data.MySQL
 
         public virtual T[] Get(string[] fields, string[] keys)
         {
-            if (fields.Length != keys.Length)
+            return Get(fields, keys, String.Empty);
+        }
+
+        public virtual T[] Get(string[] fields, string[] keys, string options)
+        {
+            int flen = fields.Length;
+            if (flen == 0 || flen != keys.Length)
                 return new T[0];
 
-            List<string> terms = new List<string>();
+            int flast = flen - 1;
+            StringBuilder sb = new StringBuilder(1024);
+            sb.AppendFormat("select * from {0} where ", m_Realm);
 
             using (MySqlCommand cmd = new MySqlCommand())
             {
-                for (int i = 0 ; i < fields.Length ; i++)
+                for (int i = 0 ; i < flen ; i++)
                 {
                     cmd.Parameters.AddWithValue(fields[i], keys[i]);
-                    terms.Add("`" + fields[i] + "` = ?" + fields[i]);
+                    if(i< flast)
+                        sb.AppendFormat("`{0}` = ?{0} and ", fields[i]);
+                    else
+                        sb.AppendFormat("`{0}` = ?{0} ", fields[i]);
                 }
 
-                string where = String.Join(" and ", terms.ToArray());
+                sb.Append(options);
+                cmd.CommandText = sb.ToString();
 
-                string query = String.Format("select * from {0} where {1}",
-                                             m_Realm, where);
-
-                cmd.CommandText = query;
-                
                 return DoQuery(cmd);
             }
         }
 
         protected T[] DoQuery(MySqlCommand cmd)
         {
-            List<T> result = new List<T>();
-
-            using (MySqlConnection dbcon = new MySqlConnection(m_connectionString))
+            if (m_trans == null)
             {
-                dbcon.Open();
-                cmd.Connection = dbcon;
-
-                using (IDataReader reader = cmd.ExecuteReader())
+                using (MySqlConnection dbcon = new MySqlConnection(m_connectionString))
                 {
-                    if (reader == null)
-                        return new T[0];
-
-                    CheckColumnNames(reader);
-
-                    while (reader.Read())
-                    {
-                        T row = new T();
-
-                        foreach (string name in m_Fields.Keys)
-                        {
-                            if (reader[name] is DBNull)
-                            {
-                                continue;
-                            }
-                            if (m_Fields[name].FieldType == typeof(bool))
-                            {
-                                int v = Convert.ToInt32(reader[name]);
-                                m_Fields[name].SetValue(row, v != 0 ? true : false);
-                            }
-                            else if (m_Fields[name].FieldType == typeof(UUID))
-                            {
-                                m_Fields[name].SetValue(row, DBGuid.FromDB(reader[name]));
-                            }
-                            else if (m_Fields[name].FieldType == typeof(int))
-                            {
-                                int v = Convert.ToInt32(reader[name]);
-                                m_Fields[name].SetValue(row, v);
-                            }
-                            else if (m_Fields[name].FieldType == typeof(uint))
-                            {
-                                uint v = Convert.ToUInt32(reader[name]);
-                                m_Fields[name].SetValue(row, v);
-                            }
-                            else
-                            {
-                                m_Fields[name].SetValue(row, reader[name]);
-                            }
-                        }
-                
-                        if (m_DataField != null)
-                        {
-                            Dictionary<string, string> data =
-                                new Dictionary<string, string>();
-
-                            foreach (string col in m_ColumnNames)
-                            {
-                                data[col] = reader[col].ToString();
-                                if (data[col] == null)
-                                    data[col] = String.Empty;
-                            }
-
-                            m_DataField.SetValue(row, data);
-                        }
-
-                        result.Add(row);
-                    }
+                    dbcon.Open();
+                    T[] ret = DoQueryWithConnection(cmd, dbcon);
+                    dbcon.Close();
+                    return ret;
                 }
             }
+            else
+            {
+                return DoQueryWithTransaction(cmd, m_trans);
+            }
+        }
 
+        protected T[] DoQueryWithTransaction(MySqlCommand cmd, MySqlTransaction trans)
+        {
+            cmd.Transaction = trans;
+
+            return DoQueryWithConnection(cmd, trans.Connection);
+        }
+
+        protected T[] DoQueryWithConnection(MySqlCommand cmd, MySqlConnection dbcon)
+        {
+            List<T> result = new List<T>();
+
+            cmd.Connection = dbcon;
+
+            using (IDataReader reader = cmd.ExecuteReader())
+            {
+                if (reader == null)
+                    return new T[0];
+
+                CheckColumnNames(reader);
+
+                while (reader.Read())
+                {
+                    T row = new T();
+
+                    foreach (string name in m_Fields.Keys)
+                    {
+                        if (reader[name] is DBNull)
+                        {
+                            continue;
+                        }
+                        if (m_Fields[name].FieldType == typeof(bool))
+                        {
+                            int v = Convert.ToInt32(reader[name]);
+                            m_Fields[name].SetValue(row, v != 0);
+                        }
+                        else if (m_Fields[name].FieldType == typeof(UUID))
+                        {
+                            m_Fields[name].SetValue(row, DBGuid.FromDB(reader[name]));
+                        }
+                        else if (m_Fields[name].FieldType == typeof(int))
+                        {
+                            int v = Convert.ToInt32(reader[name]);
+                            m_Fields[name].SetValue(row, v);
+                        }
+                        else if (m_Fields[name].FieldType == typeof(uint))
+                        {
+                            uint v = Convert.ToUInt32(reader[name]);
+                            m_Fields[name].SetValue(row, v);
+                        }
+                        else
+                        {
+                            m_Fields[name].SetValue(row, reader[name]);
+                        }
+                    }
+
+                    if (m_DataField != null)
+                    {
+                        Dictionary<string, string> data =
+                            new Dictionary<string, string>();
+
+                        foreach (string col in m_ColumnNames)
+                        {
+                            data[col] = reader[col].ToString();
+                            if (data[col] == null)
+                                data[col] = String.Empty;
+                        }
+
+                        m_DataField.SetValue(row, data);
+                    }
+
+                    result.Add(row);
+                }
+            }
+            cmd.Connection = null;
             return result.ToArray();
         }
 
@@ -215,9 +254,9 @@ namespace OpenSim.Data.MySQL
             {
                 string query = String.Format("select * from {0} where {1}",
                                              m_Realm, where);
-                
+
                 cmd.CommandText = query;
-                
+
                 return DoQuery(cmd);
             }
         }
@@ -236,16 +275,16 @@ namespace OpenSim.Data.MySQL
                 {
                     names.Add(fi.Name);
                     values.Add("?" + fi.Name);
-                    
+
                     // Temporarily return more information about what field is unexpectedly null for
-                    // http://opensimulator.org/mantis/view.php?id=5403.  This might be due to a bug in the 
+                    // http://opensimulator.org/mantis/view.php?id=5403.  This might be due to a bug in the
                     // InventoryTransferModule or we may be required to substitute a DBNull here.
                     if (fi.GetValue(row) == null)
                         throw new NullReferenceException(
                             string.Format(
-                                "[MYSQL GENERIC TABLE HANDLER]: Trying to store field {0} for {1} which is unexpectedly null", 
+                                "[MYSQL GENERIC TABLE HANDLER]: Trying to store field {0} for {1} which is unexpectedly null",
                                 fi.Name, row));
-                    
+
                     cmd.Parameters.AddWithValue(fi.Name, fi.GetValue(row).ToString());
                 }
 
@@ -357,14 +396,26 @@ namespace OpenSim.Data.MySQL
 
         public object DoQueryScalar(MySqlCommand cmd)
         {
-            using (MySqlConnection dbcon = new MySqlConnection(m_connectionString))
+            if (m_trans == null)
             {
-                dbcon.Open();
-                cmd.Connection = dbcon;
+                using (MySqlConnection dbcon = new MySqlConnection(m_connectionString))
+                {
+                    dbcon.Open();
+                    cmd.Connection = dbcon;
+
+                    Object ret = cmd.ExecuteScalar();
+                    cmd.Connection = null;
+                    dbcon.Close();
+                    return ret;
+                }
+            }
+            else
+            {
+                cmd.Connection = m_trans.Connection;
+                cmd.Transaction = m_trans;
 
                 return cmd.ExecuteScalar();
             }
         }
-
     }
 }

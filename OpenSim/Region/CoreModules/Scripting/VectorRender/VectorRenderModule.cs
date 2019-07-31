@@ -117,7 +117,7 @@ namespace OpenSim.Region.CoreModules.Scripting.VectorRender
             return true;
         }
 
-        public void GetDrawStringSize(string text, string fontName, int fontSize, 
+        public void GetDrawStringSize(string text, string fontName, int fontSize,
                                       out double xSize, out double ySize)
         {
             lock (this)
@@ -125,7 +125,6 @@ namespace OpenSim.Region.CoreModules.Scripting.VectorRender
                 using (Font myFont = new Font(fontName, fontSize))
                 {
                     SizeF stringSize = new SizeF();
-
                     // XXX: This lock may be unnecessary.
                     lock (m_graph)
                     {
@@ -209,32 +208,32 @@ namespace OpenSim.Region.CoreModules.Scripting.VectorRender
             int alpha = 255; // 0 is transparent
             Color bgColor = Color.White;  // Default background color
             char altDataDelim = ';';
-            
+
             char[] paramDelimiter = { ',' };
             char[] nvpDelimiter = { ':' };
-           
+
             extraParams = extraParams.Trim();
             extraParams = extraParams.ToLower();
-            
+
             string[] nvps = extraParams.Split(paramDelimiter);
-            
+
             int temp = -1;
             foreach (string pair in nvps)
             {
                 string[] nvp = pair.Split(nvpDelimiter);
                 string name = "";
                 string value = "";
-                
+
                 if (nvp[0] != null)
                 {
                     name = nvp[0].Trim();
                 }
-                
+
                 if (nvp.Length == 2)
                 {
                     value = nvp[1].Trim();
                 }
-                
+
                 switch (name)
                 {
                     case "width":
@@ -301,7 +300,7 @@ namespace OpenSim.Region.CoreModules.Scripting.VectorRender
                          if (Int32.TryParse(value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out hex))
                          {
                              bgColor = Color.FromArgb(hex);
-                         } 
+                         }
                          else
                          {
                              bgColor = Color.FromName(value);
@@ -321,7 +320,7 @@ namespace OpenSim.Region.CoreModules.Scripting.VectorRender
                          }
                          else
                          {
-                             // this function used to accept an int on its own that represented both 
+                             // this function used to accept an int on its own that represented both
                              // width and height, this is to maintain backwards compat, could be removed
                              // but would break existing scripts
                              temp = parseIntParam(name);
@@ -329,10 +328,10 @@ namespace OpenSim.Region.CoreModules.Scripting.VectorRender
                              {
                                  if (temp > 1024)
                                     temp = 1024;
-                                    
+
                                  if (temp < 128)
                                      temp = 128;
-                                  
+
                                  width = temp;
                                  height = temp;
                              }
@@ -354,37 +353,26 @@ namespace OpenSim.Region.CoreModules.Scripting.VectorRender
                 // under lock.
                 lock (this)
                 {
+
+                    if (alpha == 256 && bgColor.A != 255)
+                        alpha = bgColor.A;
+
                     if (alpha == 256)
+                    {
                         bitmap = new Bitmap(width, height, PixelFormat.Format32bppRgb);
+                        graph = Graphics.FromImage(bitmap);
+                        graph.Clear(bgColor);
+                    }
                     else
+                    {
+                        Color newbg = Color.FromArgb(alpha, bgColor);
                         bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb);
-    
-                    graph = Graphics.FromImage(bitmap);
-        
-                    // this is really just to save people filling the 
-                    // background color in their scripts, only do when fully opaque
-                    if (alpha >= 255)
-                    {
-                        using (SolidBrush bgFillBrush = new SolidBrush(bgColor))
-                        {
-                            graph.FillRectangle(bgFillBrush, 0, 0, width, height);
-                        }
+                        graph = Graphics.FromImage(bitmap);
+                        graph.Clear(newbg);
                     }
-        
-                    for (int w = 0; w < bitmap.Width; w++)
-                    {
-                        if (alpha <= 255) 
-                        {
-                            for (int h = 0; h < bitmap.Height; h++)
-                            {
-                                bitmap.SetPixel(w, h, Color.FromArgb(alpha, bitmap.GetPixel(w, h)));
-                            }
-                        }
-                    }
-        
                     GDIDraw(data, graph, altDataDelim, out reuseable);
                 }
-    
+
                 byte[] imageJ2000 = new byte[0];
 
                 // This code exists for testing purposes, please do not remove.
@@ -394,10 +382,10 @@ namespace OpenSim.Region.CoreModules.Scripting.VectorRender
 //                    imageJ2000 = s_asset2Data;
 //
 //                s_flipper = !s_flipper;
-    
+
                 try
                 {
-                    imageJ2000 = OpenJPEG.EncodeFromImage(bitmap, true);
+                    imageJ2000 = OpenJPEG.EncodeFromImage(bitmap, false);
                 }
                 catch (Exception e)
                 {
@@ -420,13 +408,13 @@ namespace OpenSim.Region.CoreModules.Scripting.VectorRender
                 {
                     if (graph != null)
                         graph.Dispose();
-    
+
                     if (bitmap != null)
                         bitmap.Dispose();
                 }
             }
         }
-        
+
         private int parseIntParam(string strInt)
         {
             int parsed;
@@ -440,7 +428,7 @@ namespace OpenSim.Region.CoreModules.Scripting.VectorRender
                 // m_log.Debug("Problem with Draw. Please verify parameters." + e.ToString());
                 parsed = -1;
             }
-            
+
             return parsed;
         }
 
@@ -515,12 +503,50 @@ namespace OpenSim.Region.CoreModules.Scripting.VectorRender
 
                 foreach (string line in GetLines(data, dataDelim))
                 {
-                    string nextLine = line.Trim();
+                    string nextLine = line.TrimStart();
 
 //                    m_log.DebugFormat("[VECTOR RENDER MODULE]: Processing line '{0}'", nextLine);
 
+                    if (nextLine.StartsWith("Text") && nextLine.Length > 5)
+                    {
+                        int start = 4;
+                        if (nextLine[4] == ' ')
+                            start++;
+                        if (start < nextLine.Length)
+                        {
+                            nextLine = nextLine.Substring(start);
+                            graph.DrawString(nextLine, myFont, myBrush, startPoint);
+                        }
+                        continue;
+                    }
+
+                    nextLine = nextLine.TrimEnd();
+                    if (nextLine.StartsWith("ResetTransf"))
+                    {
+                        graph.ResetTransform();
+                    }
+                    else if (nextLine.StartsWith("TransTransf"))
+                    {
+                        float x = 0;
+                        float y = 0;
+                        GetParams(partsDelimiter, ref nextLine, 11, ref x, ref y);
+                        graph.TranslateTransform(x, y);
+                    }
+                    else if (nextLine.StartsWith("ScaleTransf"))
+                    {
+                        float x = 0;
+                        float y = 0;
+                        GetParams(partsDelimiter, ref nextLine, 11, ref x, ref y);
+                        graph.ScaleTransform(x, y);
+                    }
+                    else if (nextLine.StartsWith("RotTransf"))
+                    {
+                        float x = 0;
+                        GetParams(partsDelimiter, ref nextLine, 9, ref x);
+                        graph.RotateTransform(x);
+                    }
                     //replace with switch, or even better, do some proper parsing
-                    if (nextLine.StartsWith("MoveTo"))
+                    else if (nextLine.StartsWith("MoveTo"))
                     {
                         float x = 0;
                         float y = 0;
@@ -538,12 +564,6 @@ namespace OpenSim.Region.CoreModules.Scripting.VectorRender
                         graph.DrawLine(drawPen, startPoint, endPoint);
                         startPoint.X = endPoint.X;
                         startPoint.Y = endPoint.Y;
-                    }
-                    else if (nextLine.StartsWith("Text"))
-                    {
-                        nextLine = nextLine.Remove(0, 4);
-                        nextLine = nextLine.Trim();
-                        graph.DrawString(nextLine, myFont, myBrush, startPoint);
                     }
                     else if (nextLine.StartsWith("Image"))
                     {
@@ -572,7 +592,7 @@ namespace OpenSim.Region.CoreModules.Scripting.VectorRender
                                     graph.DrawString("not an image. Please check URL.", errorFont,
                                                      myBrush, new Point(startPoint.X, 12 + startPoint.Y));
                                 }
-    
+
                                 graph.DrawRectangle(drawPen, startPoint.X, startPoint.Y, endPoint.X, endPoint.Y);
                             }
                         }
@@ -625,6 +645,17 @@ namespace OpenSim.Region.CoreModules.Scripting.VectorRender
                         startPoint.X += endPoint.X;
                         startPoint.Y += endPoint.Y;
                     }
+                    else if (nextLine.StartsWith("FillEllipse"))
+                    {
+                        float x = 0;
+                        float y = 0;
+                        GetParams(partsDelimiter, ref nextLine, 11, ref x, ref y);
+                        endPoint.X = (int)x;
+                        endPoint.Y = (int)y;
+                        graph.FillEllipse(myBrush, startPoint.X, startPoint.Y, endPoint.X, endPoint.Y);
+                        startPoint.X += endPoint.X;
+                        startPoint.Y += endPoint.Y;
+                    }
                     else if (nextLine.StartsWith("FontSize"))
                     {
                         nextLine = nextLine.Remove(0, 8);
@@ -636,58 +667,38 @@ namespace OpenSim.Region.CoreModules.Scripting.VectorRender
                     }
                     else if (nextLine.StartsWith("FontProp"))
                     {
+                        FontStyle myFontStyle = myFont.Style;
+
                         nextLine = nextLine.Remove(0, 8);
                         nextLine = nextLine.Trim();
-    
+
                         string[] fprops = nextLine.Split(partsDelimiter);
                         foreach (string prop in fprops)
                         {
-    
                             switch (prop)
                             {
                                 case "B":
-                                    if (!(myFont.Bold))
-                                    {
-                                        Font newFont = new Font(myFont, myFont.Style | FontStyle.Bold);
-                                        myFont.Dispose();
-                                        myFont = newFont;
-                                    }
+                                    myFontStyle |= FontStyle.Bold;
                                     break;
                                 case "I":
-                                    if (!(myFont.Italic))
-                                    {
-                                        Font newFont = new Font(myFont, myFont.Style | FontStyle.Italic);
-                                        myFont.Dispose();
-                                        myFont = newFont;
-                                    }
+                                    myFontStyle |= FontStyle.Italic;
                                     break;
                                 case "U":
-                                    if (!(myFont.Underline))
-                                    {
-                                        Font newFont = new Font(myFont, myFont.Style | FontStyle.Underline);
-                                        myFont.Dispose();
-                                        myFont = newFont;
-                                    }
+                                    myFontStyle |= FontStyle.Underline;
                                     break;
                                 case "S":
-                                    if (!(myFont.Strikeout))
-                                    {
-                                        Font newFont = new Font(myFont, myFont.Style | FontStyle.Strikeout);
-                                        myFont.Dispose();
-                                        myFont = newFont;
-                                    }
+                                    myFontStyle |= FontStyle.Strikeout;
                                     break;
-                                case "R":
-                                    // We need to place this newFont inside its own context so that the .NET compiler
-                                    // doesn't complain about a redefinition of an existing newFont, even though there is none
-                                    // The mono compiler doesn't produce this error.
-                                    {
-                                        Font newFont = new Font(myFont, FontStyle.Regular);
-                                        myFont.Dispose();
-                                        myFont = newFont;
-                                    }
+                                case "R":   //This special case resets all font properties
+                                    myFontStyle = FontStyle.Regular;
                                     break;
                             }
+                        }
+                        if (myFontStyle != myFont.Style)
+                        {
+                            Font newFont = new Font(myFont, myFontStyle);
+                            myFont.Dispose();
+                            myFont = newFont;
                         }
                     }
                     else if (nextLine.StartsWith("FontName"))
@@ -717,7 +728,7 @@ namespace OpenSim.Region.CoreModules.Scripting.VectorRender
                         else if (cap[0].ToLower() != "both")
                             return;
                         string type = cap[1].ToLower();
-                        
+
                         if (end)
                         {
                             switch (type)
@@ -760,7 +771,7 @@ namespace OpenSim.Region.CoreModules.Scripting.VectorRender
                         nextLine = nextLine.Remove(0, 9);
                         nextLine = nextLine.Trim();
                         int hex = 0;
-    
+
                         Color newColor;
                         if (Int32.TryParse(nextLine, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out hex))
                         {
@@ -787,6 +798,17 @@ namespace OpenSim.Region.CoreModules.Scripting.VectorRender
 
                 if (myBrush != null)
                     myBrush.Dispose();
+            }
+        }
+
+        private static void GetParams(char[] partsDelimiter, ref string line, int startLength, ref float x)
+        {
+            line = line.Remove(0, startLength);
+            string[] parts = line.Split(partsDelimiter);
+            if (parts.Length > 0)
+            {
+                string xVal = parts[0].Trim();
+                x = Convert.ToSingle(xVal, CultureInfo.InvariantCulture);
             }
         }
 

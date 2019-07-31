@@ -77,14 +77,14 @@ namespace OpenSim.Region.CoreModules.World.Archiver
                 SceneObjects = new List<SceneObjectGroup>();
             }
         }
-        
+
 
         /// <summary>
         /// The maximum major version of OAR that we can read.  Minor versions shouldn't need a max number since version
         /// bumps here should be compatible.
         /// </summary>
         public static int MAX_MAJOR_VERSION = 1;
-        
+
         /// <summary>
         /// Has the control file been loaded for this archive?
         /// </summary>
@@ -220,15 +220,15 @@ namespace OpenSim.Region.CoreModules.World.Archiver
 
             m_boundingOrigin = Vector3.Zero;
             m_boundingSize = new Vector3(scene.RegionInfo.RegionSizeX, scene.RegionInfo.RegionSizeY, float.MaxValue);
-            
+
             if (options.ContainsKey("bounding-origin"))
             {
                 Vector3 boOption = (Vector3)options["bounding-origin"];
                 if (boOption != m_boundingOrigin)
                 {
                     m_boundingOrigin = boOption;
-                    m_boundingBox = true;
                 }
+                m_boundingBox = true;
             }
 
             if (options.ContainsKey("bounding-size"))
@@ -286,6 +286,11 @@ namespace OpenSim.Region.CoreModules.World.Archiver
         /// </summary>
         public void DearchiveRegion()
         {
+            DearchiveRegion(true);
+        }
+
+        public void DearchiveRegion(bool shouldStartScripts)
+        {
             int successfulAssetRestores = 0;
             int failedAssetRestores = 0;
 
@@ -308,7 +313,7 @@ namespace OpenSim.Region.CoreModules.World.Archiver
                 {
                     //m_log.DebugFormat(
                     //    "[ARCHIVER]: Successfully read {0} ({1} bytes)", filePath, data.Length);
-                    
+
                     if (TarArchiveReader.TarEntryType.TYPE_DIRECTORY == entryType)
                         continue;
 
@@ -354,11 +359,11 @@ namespace OpenSim.Region.CoreModules.World.Archiver
                     else if (!m_merge && filePath.StartsWith(ArchiveConstants.SETTINGS_PATH))
                     {
                         LoadRegionSettings(scene, filePath, data, dearchivedScenes);
-                    } 
+                    }
                     else if (filePath.StartsWith(ArchiveConstants.LANDDATA_PATH) && (!m_merge || m_forceParcels))
                     {
                         sceneContext.SerialisedParcels.Add(Encoding.UTF8.GetString(data));
-                    } 
+                    }
                     else if (filePath == ArchiveConstants.CONTROL_FILE_PATH)
                     {
                         // Ignore, because we already read the control file
@@ -406,7 +411,7 @@ namespace OpenSim.Region.CoreModules.World.Archiver
                 {
                     LoadParcels(sceneContext.Scene, sceneContext.SerialisedParcels);
                     LoadObjects(sceneContext.Scene, sceneContext.SerialisedSceneObjects, sceneContext.SceneObjects);
-                    
+
                     // Inform any interested parties that the region has changed. We waited until now so that all
                     // of the region's objects will be loaded when we send this notification.
                     IEstateModule estateModule = sceneContext.Scene.RequestModuleInterface<IEstateModule>();
@@ -425,22 +430,26 @@ namespace OpenSim.Region.CoreModules.World.Archiver
             // Start the scripts. We delayed this because we want the OAR to finish loading ASAP, so
             // that users can enter the scene. If we allow the scripts to start in the loop above
             // then they significantly increase the time until the OAR finishes loading.
-            WorkManager.RunInThread(o =>
+            if (shouldStartScripts)
             {
-                Thread.Sleep(15000);
-                m_log.Info("[ARCHIVER]: Starting scripts in scene objects");
-
-                foreach (DearchiveContext sceneContext in sceneContexts.Values)
+                WorkManager.RunInThread(o =>
                 {
-                    foreach (SceneObjectGroup sceneObject in sceneContext.SceneObjects)
-                    {
-                        sceneObject.CreateScriptInstances(0, false, sceneContext.Scene.DefaultScriptEngine, 0); // StateSource.RegionStart
-                        sceneObject.ResumeScripts();
-                    }
+                    Thread.Sleep(15000);
+                    m_log.Info("[ARCHIVER]: Starting scripts in scene objects...");
 
-                    sceneContext.SceneObjects.Clear();
-                }
-            }, null, string.Format("ReadArchiveStartScripts (request {0})", m_requestId));
+                    foreach (DearchiveContext sceneContext in sceneContexts.Values)
+                    {
+                        foreach (SceneObjectGroup sceneObject in sceneContext.SceneObjects)
+                        {
+                            sceneObject.CreateScriptInstances(0, false, sceneContext.Scene.DefaultScriptEngine, 0); // StateSource.RegionStart
+                            sceneObject.ResumeScripts();
+                        }
+
+                        sceneContext.SceneObjects.Clear();
+                    }
+                    m_log.Info("[ARCHIVER]: Start scripts done");
+                }, null, string.Format("ReadArchiveStartScripts (request {0})", m_requestId));
+            }
 
             m_log.InfoFormat("[ARCHIVER]: Successfully loaded archive");
 
@@ -471,7 +480,7 @@ namespace OpenSim.Region.CoreModules.World.Archiver
             {
                 if (TarArchiveReader.TarEntryType.TYPE_DIRECTORY == entryType)
                     continue;
-                    
+
                 if (filePath == ArchiveConstants.CONTROL_FILE_PATH)
                 {
                     LoadControlFile(filePath, data, dearchivedScenes);
@@ -517,7 +526,7 @@ namespace OpenSim.Region.CoreModules.World.Archiver
 
             throw new Exception("[ARCHIVER]: Control file not found");
         }
-        
+
         /// <summary>
         /// Load serialized scene objects.
         /// </summary>
@@ -545,7 +554,7 @@ namespace OpenSim.Region.CoreModules.World.Archiver
                 // Really large xml files (multi megabyte) appear to cause
                 // memory problems
                 // when loading the xml.  But don't enable this check yet
-                
+
                 if (serialisedSceneObject.Length > 5000000)
                 {
                     m_log.Error("[ARCHIVER]: Ignoring xml since size > 5000000);");
@@ -745,7 +754,7 @@ namespace OpenSim.Region.CoreModules.World.Archiver
                 Vector3 AABBMax;
 
                 // create a new LandObject that we can use to manipulate the incoming source parcel data
-                // this is ok, but just beware that some of the LandObject functions (that we haven't used here) still 
+                // this is ok, but just beware that some of the LandObject functions (that we haven't used here) still
                 // assume we're always using the destination region size
                 LandData ld = new LandData();
                 landObject = new LandObject(ld, scene);
@@ -839,7 +848,7 @@ namespace OpenSim.Region.CoreModules.World.Archiver
                 }
                 parcel.ParcelAccessList = accessList;
 
-                if (m_debug) m_log.DebugFormat("[ARCHIVER]: Adding parcel {0}, local id {1}, owner {2}, group {3}, isGroupOwned {4}, area {5}", 
+                if (m_debug) m_log.DebugFormat("[ARCHIVER]: Adding parcel {0}, local id {1}, owner {2}, group {3}, isGroupOwned {4}, area {5}",
                                                     parcel.Name, parcel.LocalID, parcel.OwnerID, parcel.GroupID, parcel.IsGroupOwned, parcel.Area);
 
                 landData.Add(parcel);
@@ -936,6 +945,8 @@ namespace OpenSim.Region.CoreModules.World.Archiver
 
             if (m_assetService.GetMetadata(uuid) != null)
             {
+                sbyte asype = ArchiveConstants.EXTENSION_TO_ASSET_TYPE[extension];
+
                 // m_log.DebugFormat("[ARCHIVER]: found existing asset {0}",uuid);
                 return true;
             }
@@ -956,7 +967,7 @@ namespace OpenSim.Region.CoreModules.World.Archiver
                             ModifySceneObject(m_rootScene, sog);
                             return true;
                         });
-                    
+
                     if (data == null)
                         return false;
                 }
@@ -1062,7 +1073,7 @@ namespace OpenSim.Region.CoreModules.World.Archiver
             currentRegionSettings.Save();
 
             scene.TriggerEstateSunUpdate();
-            
+
             IEstateModule estateModule = scene.RequestModuleInterface<IEstateModule>();
             if (estateModule != null)
                 estateModule.sendRegionHandshakeToAll();
@@ -1119,16 +1130,16 @@ namespace OpenSim.Region.CoreModules.World.Archiver
 
             bool multiRegion = false;
 
-            while (xtr.Read()) 
+            while (xtr.Read())
             {
-                if (xtr.NodeType == XmlNodeType.Element) 
+                if (xtr.NodeType == XmlNodeType.Element)
                 {
                     if (xtr.Name.ToString() == "archive")
                     {
                         int majorVersion = int.Parse(xtr["major_version"]);
                         int minorVersion = int.Parse(xtr["minor_version"]);
                         string version = string.Format("{0}.{1}", majorVersion, minorVersion);
-                        
+
                         if (majorVersion > MAX_MAJOR_VERSION)
                         {
                             throw new Exception(
@@ -1136,15 +1147,15 @@ namespace OpenSim.Region.CoreModules.World.Archiver
                                     "The OAR you are trying to load has major version number of {0} but this version of OpenSim can only load OARs with major version number {1} and below",
                                     majorVersion, MAX_MAJOR_VERSION));
                         }
-                        
+
                         m_log.InfoFormat("[ARCHIVER]: Loading OAR with version {0}", version);
                     }
-                    else if (xtr.Name.ToString() == "datetime") 
+                    else if (xtr.Name.ToString() == "datetime")
                     {
                         int value;
                         if (Int32.TryParse(xtr.ReadElementContentAsString(), out value))
                             dearchivedScenes.LoadedCreationDateTime = value;
-                    } 
+                    }
                     else if (xtr.Name.ToString() == "row")
                     {
                         multiRegion = true;
@@ -1193,6 +1204,8 @@ namespace OpenSim.Region.CoreModules.World.Archiver
             }
 
             ControlFileLoaded = true;
+            if(xtr != null)
+                xtr.Close();
 
             return dearchivedScenes;
         }

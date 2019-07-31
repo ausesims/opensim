@@ -70,9 +70,14 @@ namespace OpenSim.Services.Connectors.Hypergrid
                 {
                     Uri m_Uri = new Uri(m_ServerURL);
                     IPAddress ip = Util.GetHostFromDNS(m_Uri.Host);
-                    m_ServerURL = m_ServerURL.Replace(m_Uri.Host, ip.ToString());
-                    if (!m_ServerURL.EndsWith("/"))
-                        m_ServerURL += "/";
+                    if(ip != null)
+                    {
+                        m_ServerURL = m_ServerURL.Replace(m_Uri.Host, ip.ToString());
+                        if (!m_ServerURL.EndsWith("/"))
+                            m_ServerURL += "/";
+                    }
+                    else
+                        m_log.DebugFormat("[USER AGENT CONNECTOR]: Failed to resolv address of {0}", url);
                 }
                 catch (Exception e)
                 {
@@ -113,7 +118,7 @@ namespace OpenSim.Services.Connectors.Hypergrid
             return "homeagent/";
         }
 
-        // The Login service calls this interface with fromLogin=true 
+        // The Login service calls this interface with fromLogin=true
         // Sims call it with fromLogin=false
         // Either way, this is verified by the handler
         public bool LoginAgentToGrid(GridRegion source, AgentCircuitData aCircuit, GridRegion gatekeeper, GridRegion destination, bool fromLogin, out string reason)
@@ -159,7 +164,7 @@ namespace OpenSim.Services.Connectors.Hypergrid
         }
 
         public void SetClientToken(UUID sessionID, string token)
-        { 
+        {
             // no-op
         }
 
@@ -416,7 +421,7 @@ namespace OpenSim.Services.Connectors.Hypergrid
 
             XmlRpcRequest request = new XmlRpcRequest("get_online_friends", paramList);
 //            string reason = string.Empty;
-            
+
             // Send and get reply
             List<UUID> online = new List<UUID>();
             XmlRpcResponse response = null;
@@ -497,7 +502,7 @@ namespace OpenSim.Services.Connectors.Hypergrid
             hash["userID"] = userID.ToString();
 
             hash = CallServer("get_server_urls", hash);
-           
+
             Dictionary<string, object> serverURLs = new Dictionary<string, object>();
             foreach (object key in hash.Keys)
             {
@@ -516,7 +521,7 @@ namespace OpenSim.Services.Connectors.Hypergrid
             Hashtable hash = new Hashtable();
             hash["userID"] = userID.ToString();
 
-            hash = CallServer("locate_user", hash);           
+            hash = CallServer("locate_user", hash);
 
             string url = string.Empty;
 
@@ -572,7 +577,11 @@ namespace OpenSim.Services.Connectors.Hypergrid
             XmlRpcResponse response = null;
             try
             {
-                response = request.Send(m_ServerURL, 10000);
+                // We can not use m_ServerURL here anymore because it causes
+                // the HTTP request to be built without a host name. This messes
+                // with OSGrid's NGINX and can make OSGrid avatars unable to TP
+                // to other grids running recent mono.
+                response = request.Send(m_ServerURLHost, 10000);
             }
             catch (Exception e)
             {

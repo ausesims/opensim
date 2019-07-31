@@ -155,8 +155,8 @@ public BSAPIUnman(string paramName, BSScene physScene)
 
 // Initialization and simulation
 public override BulletWorld Initialize(Vector3 maxPosition, ConfigurationParameters parms,
-											int maxCollisions,  ref CollisionDesc[] collisionArray,
-											int maxUpdates, ref EntityProperties[] updateArray
+                                            int maxCollisions,  ref CollisionDesc[] collisionArray,
+                                            int maxUpdates, ref EntityProperties[] updateArray
                                             )
 {
     // Pin down the memory that will be used to pass object collisions and updates back from unmanaged code
@@ -1405,6 +1405,19 @@ public override float GetMargin(BulletShape shape)
 }
 
 // =====================================================================================
+// Raycast
+public override SweepHit ConvexSweepTest2(BulletWorld world, BulletBody sweepObject, Vector3 from, Vector3 to, float margin) {
+    BulletWorldUnman worldu = world as BulletWorldUnman;
+    BulletBodyUnman bodyu = sweepObject as BulletBodyUnman;
+    return BSAPICPP.ConvexSweepTest2(worldu.ptr, bodyu.ptr, from, to, margin);
+}
+
+public override RaycastHit RayTest2(BulletWorld world, Vector3 from, Vector3 to, uint filterGroup, uint filterMask) {
+    BulletWorldUnman worldu = world as BulletWorldUnman;
+    return BSAPICPP.RayTest2(worldu.ptr, from, to, filterGroup, filterMask);
+}
+
+// =====================================================================================
 // Debugging
 public override void DumpRigidBody(BulletWorld world, BulletBody collisionObject)
 {
@@ -1472,8 +1485,8 @@ public delegate void DebugLogCallback([MarshalAs(UnmanagedType.LPStr)]string msg
 // Initialization and simulation
 [DllImport("BulletSim", CallingConvention = CallingConvention.Cdecl), SuppressUnmanagedCodeSecurity]
 public static extern IntPtr Initialize2(Vector3 maxPosition, IntPtr parms,
-											int maxCollisions,  IntPtr collisionArray,
-											int maxUpdates, IntPtr updateArray,
+                                            int maxCollisions,  IntPtr collisionArray,
+                                            int maxUpdates, IntPtr updateArray,
                                             DebugLogCallback logRoutine);
 
 [DllImport("BulletSim", CallingConvention = CallingConvention.Cdecl), SuppressUnmanagedCodeSecurity]
@@ -2083,6 +2096,15 @@ public static extern void SetMargin2(IntPtr shape, float val);
 
 [DllImport("BulletSim", CallingConvention = CallingConvention.Cdecl), SuppressUnmanagedCodeSecurity]
 public static extern float GetMargin2(IntPtr shape);
+
+
+// =====================================================================================
+// Raycast
+[DllImport("BulletSim", CallingConvention = CallingConvention.Cdecl), SuppressUnmanagedCodeSecurity]
+public static extern SweepHit ConvexSweepTest2(IntPtr sim, IntPtr obj, Vector3 from, Vector3 to, float margin);
+
+[DllImport("BulletSim", CallingConvention = CallingConvention.Cdecl), SuppressUnmanagedCodeSecurity]
+public static extern RaycastHit RayTest2(IntPtr sim, Vector3 from, Vector3 to, uint filterGroup, uint filterMask);
 
 // =====================================================================================
 // Debugging

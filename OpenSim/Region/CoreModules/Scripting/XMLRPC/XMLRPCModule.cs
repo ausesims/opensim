@@ -621,7 +621,7 @@ namespace OpenSim.Region.CoreModules.Scripting.XMLRPC
         private Thread httpThread;
         public int Idata;
         private UUID _itemID;
-        public UUID ItemID 
+        public UUID ItemID
         {
             get { return _itemID; }
             set { _itemID = value; }
@@ -633,7 +633,7 @@ namespace OpenSim.Region.CoreModules.Scripting.XMLRPC
             set { _localID = value; }
         }
         private UUID _reqID;
-        public UUID ReqID 
+        public UUID ReqID
         {
             get { return _reqID; }
             set { _reqID = value; }
@@ -658,7 +658,7 @@ namespace OpenSim.Region.CoreModules.Scripting.XMLRPC
         public void Process()
         {
             _finished = false;
-            httpThread = WorkManager.StartThread(SendRequest, "HttpRequestThread", ThreadPriority.BelowNormal, true, false);
+            httpThread = WorkManager.StartThread(SendRequest, "XMLRPCreqThread", ThreadPriority.Normal, true, false, null, int.MaxValue);
         }
 
         /*
@@ -728,10 +728,12 @@ namespace OpenSim.Region.CoreModules.Scripting.XMLRPC
                 m_log.Warn("[SendRemoteDataRequest]: Request failed");
                 m_log.Warn(we.StackTrace);
             }
-
-            _finished = true;
-
-            Watchdog.RemoveThread();
+            finally
+            {
+                _finished = true;
+                httpThread = null;
+                Watchdog.RemoveThread();
+            }
         }
 
         public void Stop()

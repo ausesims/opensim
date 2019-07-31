@@ -38,8 +38,8 @@ namespace OpenSim.Region.Framework.Scenes
     public class EntityManager
     {
 //        private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
-        
-        private readonly DoubleDictionaryThreadAbortSafe<UUID, uint, EntityBase> m_entities 
+
+        private readonly DoubleDictionaryThreadAbortSafe<UUID, uint, EntityBase> m_entities
             = new DoubleDictionaryThreadAbortSafe<UUID, uint, EntityBase>();
 
         public int Count
@@ -94,9 +94,7 @@ namespace OpenSim.Region.Framework.Scenes
 
         public EntityBase[] GetEntities()
         {
-            List<EntityBase> tmp = new List<EntityBase>(m_entities.Count);
-            ForEach(delegate(EntityBase entity) { tmp.Add(entity); });
-            return tmp.ToArray();
+            return m_entities.GetArray();
         }
 
         public void ForEach(Action<EntityBase> action)

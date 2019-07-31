@@ -38,6 +38,7 @@ using LSL_Integer = OpenSim.Region.ScriptEngine.Shared.LSL_Types.LSLInteger;
 using LSL_Float = OpenSim.Region.ScriptEngine.Shared.LSL_Types.LSLFloat;
 using LSL_Key = OpenSim.Region.ScriptEngine.Shared.LSL_Types.LSLString;
 
+
 namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
 {
     /// <summary>
@@ -50,11 +51,10 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
     /// </summary>
     public enum ThreatLevel
     {
-        // Not documented, presumably means permanently disabled ?
         NoAccess = -1,
 
         /// <summary>
-        /// Function is no threat at all. It doesn't constitute a threat to 
+        /// Function is no threat at all. It doesn't constitute a threat to
         /// either users or the system and has no known side effects.
         /// </summary>
         None = 0,
@@ -66,7 +66,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
         Nuisance = 1,
 
         /// <summary>
-        /// Extreme levels of abuse of this function can cause impaired 
+        /// Extreme levels of abuse of this function can cause impaired
         /// functioning of the region, or very gullible users can be tricked
         /// into experiencing harmless effects.
         /// </summary>
@@ -81,7 +81,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
 
         /// <summary>
         /// Intentional abuse can cause denial of service and crashes with
-        /// potential of data or state loss; or trusting users can be tricked 
+        /// potential of data or state loss; or trusting users can be tricked
         /// into embarrassing or uncomfortable situations.
         /// </summary>
         Moderate = 4,
@@ -123,6 +123,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
         string osSetDynamicTextureURLBlendFace(string dynamicID, string contentType, string url, string extraParams,
                                            bool blend, int disp, int timer, int alpha, int face);
         string osSetDynamicTextureData(string dynamicID, string contentType, string data, string extraParams, int timer);
+        string osSetDynamicTextureDataFace(string dynamicID, string contentType, string data, string extraParams, int timer, int face);
         string osSetDynamicTextureDataBlend(string dynamicID, string contentType, string data, string extraParams,
                                             int timer, int alpha);
         string osSetDynamicTextureDataBlendFace(string dynamicID, string contentType, string data, string extraParams,
@@ -132,20 +133,24 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
         LSL_Float osTerrainGetHeight(int x, int y); // Deprecated
         LSL_Integer osSetTerrainHeight(int x, int y, double val);
         LSL_Integer osTerrainSetHeight(int x, int y, double val); //Deprecated
+        //ApiDesc Send terrain to all agents
         void osTerrainFlush();
 
         int osRegionRestart(double seconds);
+        int osRegionRestart(double seconds, string msg);
         void osRegionNotice(string msg);
+        void osRegionNotice(LSL_Key agentID, string msg);
         bool osConsoleCommand(string Command);
         void osSetParcelMediaURL(string url);
         void osSetPrimFloatOnWater(int floatYN);
         void osSetParcelSIPAddress(string SIPAddress);
 
         // Avatar Info Commands
-        string osGetAgentIP(string agent);
         LSL_List osGetAgents();
-        
+        string osGetAgentIP(string agent);
+
         // Teleport commands
+        void osLocalTeleportAgent(LSL_Key agent, LSL_Types.Vector3 position, LSL_Types.Vector3 velocity, LSL_Types.Vector3 lookat, LSL_Integer flags);
         void osTeleportAgent(string agent, string regionName, LSL_Types.Vector3 position, LSL_Types.Vector3 lookat);
         void osTeleportAgent(string agent, int regionX, int regionY, LSL_Types.Vector3 position, LSL_Types.Vector3 lookat);
         void osTeleportAgent(string agent, LSL_Types.Vector3 position, LSL_Types.Vector3 lookat);
@@ -154,8 +159,8 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
         void osTeleportOwner(LSL_Types.Vector3 position, LSL_Types.Vector3 lookat);
 
         // Animation commands
-        void osAvatarPlayAnimation(string avatar, string animation);
-        void osAvatarStopAnimation(string avatar, string animation);
+        void osAvatarPlayAnimation(LSL_Key avatarId, string animation);
+        void osAvatarStopAnimation(LSL_Key avatarId, string animation);
 
         #region Attachment commands
 
@@ -221,10 +226,15 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
         string osDrawLine(string drawList, int endX, int endY);
         string osDrawText(string drawList, string text);
         string osDrawEllipse(string drawList, int width, int height);
+        string osDrawFilledEllipse(string drawList, int width, int height);
         string osDrawRectangle(string drawList, int width, int height);
         string osDrawFilledRectangle(string drawList, int width, int height);
         string osDrawPolygon(string drawList, LSL_List x, LSL_List y);
         string osDrawFilledPolygon(string drawList, LSL_List x, LSL_List y);
+        string osDrawResetTransform(string drawList);
+        string osDrawRotationTransform(string drawList, LSL_Float x);
+        string osDrawScaleTransform(string drawList, LSL_Float x, LSL_Float y);
+        string osDrawTranslationTransform(string drawList, LSL_Float x, LSL_Float y);
         string osSetFontName(string drawList, string fontName);
         string osSetFontSize(string drawList, int fontSize);
         string osSetPenSize(string drawList, int penSize);
@@ -234,8 +244,6 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
         string osDrawImage(string drawList, int width, int height, string imageUrl);
         vector osGetDrawStringSize(string contentType, string text, string fontName, int fontSize);
         void osSetStateEvents(int events);
-
-        double osList2Double(LSL_Types.list src, int index);
 
         void osSetRegionWaterHeight(double height);
         void osSetRegionSunSettings(bool useEstateSun, bool sunFixed, double sunHour);
@@ -252,6 +260,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
         LSL_Float osGetWindParam(string plugin, string param);
 
         // Parcel commands
+        LSL_Integer osGetParcelDwell(vector pos);
         void osParcelJoin(vector pos1, vector pos2);
         void osParcelSubdivide(vector pos1, vector pos2);
         void osSetParcelDetails(vector pos, LSL_List rules);
@@ -261,8 +270,7 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
         string osGetSimulatorVersion();
         LSL_Integer osCheckODE();
         string osGetPhysicsEngineType();
-        Object osParseJSONNew(string JSON);
-        Hashtable osParseJSON(string JSON);
+        string osGetPhysicsEngineName();
 
         void osMessageObject(key objectUUID,string message);
 
@@ -315,6 +323,13 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
         void osForceBreakAllLinks();
 
         /// <summary>
+        /// Similar to llDie but given an object UUID
+        /// </summary>
+        /// <param name="objectUUID"></param>
+
+        void osDie(LSL_Key objectUUID);
+
+        /// <summary>
         /// Check if the given key is an npc
         /// </summary>
         /// <param name="npc"></param>
@@ -341,8 +356,11 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
         rotation    osNpcGetRot(key npc);
         void        osNpcSetRot(LSL_Key npc, rotation rot);
         void        osNpcStopMoveToTarget(LSL_Key npc);
+        void        osNpcSetProfileAbout(LSL_Key npc, string about);
+        void        osNpcSetProfileImage(LSL_Key npc, string image);
         void        osNpcSay(key npc, string message);
         void        osNpcSay(key npc, int channel, string message);
+        void        osNpcSayTo(LSL_Key npc, LSL_Key target, int channel, string msg);
         void        osNpcShout(key npc, int channel, string message);
         void        osNpcSit(key npc, key target, int options);
         void        osNpcStand(LSL_Key npc);
@@ -362,23 +380,29 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
         vector osGetRegionSize();
 
         int osGetSimulatorMemory();
-        void osKickAvatar(string FirstName,string SurName,string alert);
+        int osGetSimulatorMemoryKB();
+        void osKickAvatar(string FirstName, string SurName, string alert);
+        void osKickAvatar(LSL_Key agentId, string alert);
         void osSetSpeed(string UUID, LSL_Float SpeedModifier);
-        LSL_Float osGetHealth(string avatar);
-        void osCauseHealing(string avatar, double healing);
-        void osCauseDamage(string avatar, double damage);
+        void osSetOwnerSpeed(LSL_Float SpeedModifier);
+        LSL_Float osGetHealth(key agentId);
+        void osCauseHealing(key agentId, LSL_Float healing);
+        void osSetHealth(key agentId, LSL_Float health);
+        void osSetHealRate(key agentId, LSL_Float health);
+        LSL_Float osGetHealRate(key agentId);
+        void osCauseDamage(key avatar, LSL_Float damage);
         void osForceOtherSit(string avatar);
         void osForceOtherSit(string avatar, string target);
         LSL_List osGetPrimitiveParams(LSL_Key prim, LSL_List rules);
         void osSetPrimitiveParams(LSL_Key prim, LSL_List rules);
-        void osSetProjectionParams(bool projection, LSL_Key texture, double fov, double focus, double amb);
-        void osSetProjectionParams(LSL_Key prim, bool projection, LSL_Key texture, double fov, double focus, double amb);
+        void osSetProjectionParams(LSL_Integer projection, LSL_Key texture, LSL_Float fov, LSL_Float focus, LSL_Float amb);
+        void osSetProjectionParams(LSL_Key prim, LSL_Integer projection, LSL_Key texture, LSL_Float fov, LSL_Float focus, LSL_Float amb);
+        void osSetProjectionParams(LSL_Integer linknumber, LSL_Integer projection, LSL_Key texture, LSL_Float fov, LSL_Float focus, LSL_Float amb);
 
         LSL_List osGetAvatarList();
+        LSL_List osGetNPCList();
 
-        LSL_String osUnixTimeToTimestamp(long time);
-
-        LSL_String osGetInventoryDesc(string item);
+        LSL_String osUnixTimeToTimestamp(LSL_Integer time);
 
         LSL_Integer osInviteToGroup(LSL_Key agentId);
         LSL_Integer osEjectFromGroup(LSL_Key agentId);
@@ -468,5 +492,66 @@ namespace OpenSim.Region.ScriptEngine.Shared.Api.Interfaces
         /// <param name="regex">string to use as pattern</param>
         /// <returns>boolean</returns>
         LSL_Integer osRegexIsMatch(string input, string pattern);
+
+        LSL_String osRequestURL(LSL_List options);
+        LSL_String osRequestSecureURL(LSL_List options);
+        void osCollisionSound(string impact_sound, double impact_volume);
+
+        void osVolumeDetect(int detect);
+
+        LSL_List osGetInertiaData();
+        void osClearInertia();
+        void osSetInertia(LSL_Float mass, vector centerOfMass, vector principalInertiaScaled,  rotation rot);
+        void osSetInertiaAsBox(LSL_Float mass, vector boxSize, vector centerOfMass, rotation rot);
+        void osSetInertiaAsSphere(LSL_Float mass,  LSL_Float radius, vector centerOfMass);
+        void osSetInertiaAsCylinder(LSL_Float mass,  LSL_Float radius, LSL_Float lenght, vector centerOfMass,rotation lslrot);
+
+        LSL_Integer osTeleportObject(LSL_Key objectUUID, vector targetPos, rotation targetrotation, LSL_Integer flags);
+        LSL_Integer osGetLinkNumber(LSL_String name);
+
+        LSL_Float osRound(LSL_Float value, LSL_Integer digits);
+
+        LSL_Float osVecMagSquare(vector a);
+        LSL_Float osVecDistSquare(vector a, vector b);
+        LSL_Float osAngleBetween(vector a, vector b);
+
+        void osAdjustSoundVolume(LSL_Integer linknum, LSL_Float volume);
+        void osLoopSound(LSL_Integer linknum, LSL_String sound, LSL_Float volume);
+        void osLoopSoundMaster(LSL_Integer linknum, LSL_String sound, LSL_Float volume);
+        void osLoopSoundSlave(LSL_Integer linknum, LSL_String sound, LSL_Float volume);
+        void osPlaySound(LSL_Integer linknum, LSL_String sound, LSL_Float volume);
+        void osPlaySoundSlave(LSL_Integer linknum, LSL_String sound, LSL_Float volume);
+        void osPreloadSound(LSL_Integer linknum, LSL_String sound);
+        void osSetSoundRadius(LSL_Integer linknum, LSL_Float radius);
+        void osStopSound(LSL_Integer linknum);
+        void osTriggerSound(LSL_Integer linknum, LSL_String sound, LSL_Float volume);
+        void osTriggerSoundLimited(LSL_Integer linknum, LSL_String sound, LSL_Float volume,
+                 vector top_north_east, vector bottom_south_west);
+
+        LSL_String osDetectedCountry(LSL_Integer number);
+        LSL_String osGetAgentCountry(LSL_Key agentId);
+
+        LSL_String osStringSubString(LSL_String src, LSL_Integer start);
+        LSL_String osStringSubString(LSL_String src, LSL_Integer start, LSL_Integer length);
+        LSL_Integer osStringStartsWith(LSL_String src, LSL_String value, LSL_Integer ignorecase);
+        LSL_Integer osStringEndsWith(LSL_String src, LSL_String value, LSL_Integer ignorecase);
+        LSL_Integer osStringIndexOf(LSL_String src, LSL_String value, LSL_Integer ignorecase);
+        LSL_Integer osStringIndexOf(LSL_String src, LSL_String value, LSL_Integer start, LSL_Integer count, LSL_Integer ignorecase);
+        LSL_Integer osStringLastIndexOf(LSL_String src, LSL_String value, LSL_Integer ignorecase);
+        LSL_Integer osStringLastIndexOf(LSL_String src, LSL_String value, LSL_Integer start, LSL_Integer count, LSL_Integer ignorecase);
+        LSL_String osStringRemove(LSL_String src, LSL_Integer start, LSL_Integer count);
+        LSL_String osStringReplace(LSL_String src, LSL_String oldvalue, LSL_String newvalue);
+
+        LSL_Integer osApproxEquals(LSL_Float a, LSL_Float b);
+        LSL_Integer osApproxEquals(LSL_Float a, LSL_Float b, LSL_Float margin);
+        LSL_Integer osApproxEquals(vector va, vector vb);
+        LSL_Integer osApproxEquals(vector va, vector vb, LSL_Float margin);
+        LSL_Integer osApproxEquals(rotation ra, rotation rb);
+        LSL_Integer osApproxEquals(rotation ra, rotation rb, LSL_Float margin);
+        LSL_Key osGetInventoryLastOwner(LSL_String itemNameOrId);
+        LSL_String osGetInventoryName(LSL_Key itemId);
+        LSL_String osGetInventoryDesc(LSL_String itemNameOrId);
+        LSL_Key osGetLastChangedEventKey();
+        LSL_Float osGetPSTWallclock();
     }
 }

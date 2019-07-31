@@ -107,7 +107,7 @@ namespace Prebuild.Core.Utilities
 					break;
 				}
 				int length = endIndex - startIndex - beforeGroup.Length;//move to the first char in the string
-				string substring = substring = target.Substring(startIndex + beforeGroup.Length - beforeMod,
+				string substring = target.Substring(startIndex + beforeGroup.Length - beforeMod,
 					length - afterMod);
 
 				results.Add(substring);

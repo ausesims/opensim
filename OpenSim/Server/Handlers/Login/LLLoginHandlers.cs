@@ -53,7 +53,7 @@ namespace OpenSim.Server.Handlers.Login
 
         private ILoginService m_LocalService;
         private bool m_Proxy;
-        
+
 
         public LLLoginHandlers(ILoginService service, bool hasProxy)
         {
@@ -64,7 +64,7 @@ namespace OpenSim.Server.Handlers.Login
         public XmlRpcResponse HandleXMLRPCLogin(XmlRpcRequest request, IPEndPoint remoteClient)
         {
             Hashtable requestData = (Hashtable)request.Params[0];
-            if (m_Proxy && request.Params[3] != null)
+            if (request.Params[3] != null)
             {
                 IPEndPoint ep = Util.GetClientIPFromXFF((string)request.Params[3]);
                 if (ep != null)
@@ -136,7 +136,7 @@ namespace OpenSim.Server.Handlers.Login
                     bool LibOMVclient = false;
                     if (request.Params.Count > 4 && (string)request.Params[4] == "gridproxy")
                         LibOMVclient = true;
-                    
+
                     LoginResponse reply = null;
                     reply = m_LocalService.Login(first, last, passwd, startLocation, scopeID, clientVersion, channel, mac, id0, remoteClient, LibOMVclient);
 
@@ -279,11 +279,11 @@ namespace OpenSim.Server.Handlers.Login
                                        sock.Close("success");
                                    }
                                };
-            
+
             sock.HandshakeAndUpgrade();
 
         }
-        
+
 
         private XmlRpcResponse FailedXMLRPCResponse()
         {

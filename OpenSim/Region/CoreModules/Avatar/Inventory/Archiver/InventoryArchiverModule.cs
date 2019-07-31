@@ -172,7 +172,7 @@ namespace OpenSim.Region.CoreModules.Avatar.Inventory.Archiver
 
         public string Name { get { return "Inventory Archiver Module"; } }
 
-        #endregion 
+        #endregion
 
         /// <summary>
         /// Trigger the inventory archive saved event.
@@ -218,7 +218,8 @@ namespace OpenSim.Region.CoreModules.Avatar.Inventory.Archiver
 //                    {
                         try
                         {
-                            new InventoryArchiveWriteRequest(id, this, m_aScene, userInfo, invPath, saveStream).Execute(options, UserAccountService);
+                            InventoryArchiveWriteRequest iarReq = new InventoryArchiveWriteRequest(id, this, m_aScene, userInfo, invPath, saveStream);
+                            iarReq.Execute(options, UserAccountService);
                         }
                         catch (EntryPointNotFoundException e)
                         {
@@ -261,7 +262,8 @@ namespace OpenSim.Region.CoreModules.Avatar.Inventory.Archiver
 //                    {
                         try
                         {
-                            new InventoryArchiveWriteRequest(id, this, m_aScene, userInfo, invPath, savePath).Execute(options, UserAccountService);
+                            InventoryArchiveWriteRequest iarReq  = new InventoryArchiveWriteRequest(id, this, m_aScene, userInfo, invPath, savePath);
+                            iarReq.Execute(options, UserAccountService);
                         }
                         catch (EntryPointNotFoundException e)
                         {
@@ -565,8 +567,6 @@ namespace OpenSim.Region.CoreModules.Avatar.Inventory.Archiver
                 return null;
             }
 
-            return account;
-            /*
             try
             {
                 string encpass = Util.Md5Hash(pass);
@@ -587,14 +587,13 @@ namespace OpenSim.Region.CoreModules.Avatar.Inventory.Archiver
                 m_log.ErrorFormat("[INVENTORY ARCHIVER]: Could not authenticate password, {0}", e);
                 return null;
             }
-            */
         }
 
         /// <summary>
         /// Notify the client of loaded nodes if they are logged in
         /// </summary>
         /// <param name="loadedNodes">Can be empty.  In which case, nothing happens</param>
-        private void UpdateClientWithLoadedNodes(UserAccount userInfo, HashSet<InventoryNodeBase> loadedNodes)
+        private void UpdateClientWithLoadedNodes(UserAccount userInfo, Dictionary<UUID, InventoryNodeBase> loadedNodes)
         {
             if (loadedNodes.Count == 0)
                 return;
@@ -605,7 +604,7 @@ namespace OpenSim.Region.CoreModules.Avatar.Inventory.Archiver
 
                 if (user != null && !user.IsChildAgent)
                 {
-                    foreach (InventoryNodeBase node in loadedNodes)
+                    foreach (InventoryNodeBase node in loadedNodes.Values)
                     {
 //                        m_log.DebugFormat(
 //                            "[INVENTORY ARCHIVER]: Notifying {0} of loaded inventory node {1}",

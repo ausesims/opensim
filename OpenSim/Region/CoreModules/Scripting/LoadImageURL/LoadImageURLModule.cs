@@ -98,7 +98,7 @@ namespace OpenSim.Region.CoreModules.Scripting.LoadImageURL
             return false;
         }
 
-        public void GetDrawStringSize(string text, string fontName, int fontSize, 
+        public void GetDrawStringSize(string text, string fontName, int fontSize,
                                       out double xSize, out double ySize)
         {
             xSize = 0;
@@ -124,7 +124,7 @@ namespace OpenSim.Region.CoreModules.Scripting.LoadImageURL
         {
             if (m_scene == null)
                 m_scene = scene;
-            
+
         }
 
         public void RemoveRegion(Scene scene)
@@ -166,15 +166,15 @@ namespace OpenSim.Region.CoreModules.Scripting.LoadImageURL
 
             HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
             request.AllowAutoRedirect = false;
-            
-            if (!string.IsNullOrEmpty(m_proxyurl)) 
+
+            if (!string.IsNullOrEmpty(m_proxyurl))
             {
-                if (!string.IsNullOrEmpty(m_proxyexcepts)) 
+                if (!string.IsNullOrEmpty(m_proxyexcepts))
                 {
                     string[] elist = m_proxyexcepts.Split(';');
                     request.Proxy = new WebProxy(m_proxyurl, true, elist);
-                } 
-                else 
+                }
+                else
                 {
                     request.Proxy = new WebProxy(m_proxyurl, true);
                 }
@@ -215,45 +215,49 @@ namespace OpenSim.Region.CoreModules.Scripting.LoadImageURL
                     {
                         try
                         {
-                            Bitmap image = new Bitmap(stream);
+                            using(Bitmap image = new Bitmap(stream))
+                            {
+                                // TODO: make this a bit less hard coded
+                                if((image.Height < 64) && (image.Width < 64))
+                                {
+                                    newSize.Width = 32;
+                                    newSize.Height = 32;
+                                }
+                                else if((image.Height < 128) && (image.Width < 128))
+                                {
+                                    newSize.Width = 64;
+                                    newSize.Height = 64;
+                                }
+                                else if((image.Height < 256) && (image.Width < 256))
+                                {
+                                    newSize.Width = 128;
+                                    newSize.Height = 128;
+                                }
+                                else if((image.Height < 512 && image.Width < 512))
+                                {
+                                    newSize.Width = 256;
+                                    newSize.Height = 256;
+                                }
+                                else if((image.Height < 1024 && image.Width < 1024))
+                                {
+                                    newSize.Width = 512;
+                                    newSize.Height = 512;
+                                }
+                                else
+                                {
+                                    newSize.Width = 1024;
+                                    newSize.Height = 1024;
+                                }
 
-                            // TODO: make this a bit less hard coded
-                            if ((image.Height < 64) && (image.Width < 64))
-                            {
-                                newSize.Width = 32;
-                                newSize.Height = 32;
+                                if(newSize.Width != image.Width || newSize.Height != image.Height)
+                                {
+                                    using(Bitmap resize = new Bitmap(image, newSize))
+                                     imageJ2000 = OpenJPEG.EncodeFromImage(resize, false);
+                                }
+                                else
+                                    imageJ2000 = OpenJPEG.EncodeFromImage(image, false);
                             }
-                            else if ((image.Height < 128) && (image.Width < 128))
-                            {
-                                newSize.Width = 64;
-                                newSize.Height = 64;
-                            }
-                            else if ((image.Height < 256) && (image.Width < 256))
-                            {
-                                newSize.Width = 128;
-                                newSize.Height = 128;
-                            }
-                            else if ((image.Height < 512 && image.Width < 512))
-                            {
-                                newSize.Width = 256;
-                                newSize.Height = 256;
-                            }
-                            else if ((image.Height < 1024 && image.Width < 1024))
-                            {
-                                newSize.Width = 512;
-                                newSize.Height = 512;
-                            }
-                            else
-                            {
-                                newSize.Width = 1024;
-                                newSize.Height = 1024;
-                            }
-
-                            using (Bitmap resize = new Bitmap(image, newSize))
-                            {
-                                imageJ2000 = OpenJPEG.EncodeFromImage(resize, true);
-                            }
-                        } 
+                        }
                         catch (Exception)
                         {
                             m_log.Error("[LOADIMAGEURLMODULE]: OpenJpeg Conversion Failed.  Empty byte data returned!");
@@ -268,33 +272,37 @@ namespace OpenSim.Region.CoreModules.Scripting.LoadImageURL
             catch (WebException)
             {
             }
+            catch (Exception e)
+            {
+                m_log.ErrorFormat("[LOADIMAGEURLMODULE]: unexpected exception {0}", e.Message);
+            }
             finally
             {
                 if (stream != null)
                     stream.Close();
 
                 if (response != null)
+                {
+                    if (response.StatusCode == HttpStatusCode.MovedPermanently
+                            || response.StatusCode == HttpStatusCode.Found
+                            || response.StatusCode == HttpStatusCode.SeeOther
+                            || response.StatusCode == HttpStatusCode.TemporaryRedirect)
+                    {
+                        string redirectedUrl = response.Headers["Location"];
+
+                        MakeHttpRequest(redirectedUrl, state.RequestID);
+                    }
+                    else
+                    {
+                        m_log.DebugFormat("[LOADIMAGEURLMODULE]: Returning {0} bytes of image data for request {1}",
+                                          imageJ2000.Length, state.RequestID);
+
+                        m_textureManager.ReturnData(
+                            state.RequestID,
+                            new OpenSim.Region.CoreModules.Scripting.DynamicTexture.DynamicTexture(
+                            request.RequestUri, null, imageJ2000, newSize, false));
+                    }
                     response.Close();
-
-                if (
-                    response.StatusCode == HttpStatusCode.MovedPermanently
-                        || response.StatusCode == HttpStatusCode.Found
-                        || response.StatusCode == HttpStatusCode.SeeOther
-                        || response.StatusCode == HttpStatusCode.TemporaryRedirect)
-                {
-                    string redirectedUrl = response.Headers["Location"];
-
-                    MakeHttpRequest(redirectedUrl, state.RequestID);
-                }
-                else
-                {
-                    m_log.DebugFormat("[LOADIMAGEURLMODULE]: Returning {0} bytes of image data for request {1}",
-                                      imageJ2000.Length, state.RequestID);
-
-                    m_textureManager.ReturnData(
-                        state.RequestID,
-                        new OpenSim.Region.CoreModules.Scripting.DynamicTexture.DynamicTexture(
-                        request.RequestUri, null, imageJ2000, newSize, false));
                 }
             }
         }

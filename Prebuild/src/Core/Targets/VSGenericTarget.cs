@@ -91,7 +91,7 @@ namespace Prebuild.Core.Targets
 		/// </summary>
 		protected VSGenericTarget()
 		{
-			tools["C#"] = new ToolInfo("C#", "{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}", "csproj", "CSHARP", "$(MSBuildBinPath)\\Microsoft.CSHARP.Targets");
+			tools["C#"] = new ToolInfo("C#", "{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}", "csproj", "CSHARP", "$(MSBuildBinPath)\\Microsoft.CSharp.targets");
 			tools["Database"] = new ToolInfo("Database", "{4F174C21-8C12-11D0-8340-0000F80270F8}", "dbp", "UNKNOWN");
 			tools["Boo"] = new ToolInfo("Boo", "{45CEA7DC-C2ED-48A6-ACE0-E16144C02365}", "booproj", "Boo", "$(BooBinPath)\\Boo.Microsoft.Build.targets");
 			tools["VisualBasic"] = new ToolInfo("VisualBasic", "{F184B08F-C81C-45F6-A57F-5ABD9991F28F}", "vbproj", "VisualBasic", "$(MSBuildBinPath)\\Microsoft.VisualBasic.Targets");
@@ -219,7 +219,12 @@ namespace Prebuild.Core.Targets
 				ps.WriteLine("	  </FileUpgradeFlags>");
 
 				ps.WriteLine("	</PropertyGroup>");
-
+                if (!string.IsNullOrEmpty(project.ApplicationManifest))
+                {
+                    ps.WriteLine("	<PropertyGroup>");
+                    ps.WriteLine("	  <ApplicationManifest>" + project.ApplicationManifest + "</ApplicationManifest>");
+                    ps.WriteLine("	</PropertyGroup>");
+                }
 				foreach (ConfigurationNode conf in project.Configurations)
 				{
 					ps.Write("	<PropertyGroup ");
@@ -229,7 +234,8 @@ namespace Prebuild.Core.Targets
 					ps.WriteLine("	  <CheckForOverflowUnderflow>{0}</CheckForOverflowUnderflow>", conf.Options["CheckUnderflowOverflow"]);
 					ps.WriteLine("	  <ConfigurationOverrideFile>");
 					ps.WriteLine("	  </ConfigurationOverrideFile>");
-					ps.WriteLine("	  <DefineConstants>{0}</DefineConstants>", conf.Options["CompilerDefines"]);
+					ps.WriteLine("	  <DefineConstants>{0}</DefineConstants>",
+                        conf.Options["CompilerDefines"].ToString() == "" ? this.kernel.ForcedConditionals : conf.Options["CompilerDefines"] + ";" + kernel.ForcedConditionals);
 					ps.WriteLine("	  <DocumentationFile>{0}</DocumentationFile>", Helper.NormalizePath(conf.Options["XmlDocFile"].ToString()));
 					ps.WriteLine("	  <DebugSymbols>{0}</DebugSymbols>", conf.Options["DebugInformation"]);
 					ps.WriteLine("	  <FileAlignment>{0}</FileAlignment>", conf.Options["FileAlignment"]);
@@ -248,6 +254,7 @@ namespace Prebuild.Core.Targets
 					ps.WriteLine("	  <NoStdLib>{0}</NoStdLib>", conf.Options["NoStdLib"]);
 					ps.WriteLine("	  <NoWarn>{0}</NoWarn>", conf.Options["SuppressWarnings"]);
 					ps.WriteLine("	  <PlatformTarget>{0}</PlatformTarget>", conf.Platform);
+                    ps.WriteLine("	  <Prefer32Bit>{0}</Prefer32Bit>",conf.Options["Prefer32Bit"]);
 					ps.WriteLine("	</PropertyGroup>");
 				}
 

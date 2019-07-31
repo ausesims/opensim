@@ -82,6 +82,7 @@ namespace OpenSim.Data.MySQL
 
                 Migration m = new Migration(dbcon, Assembly, "EstateStore");
                 m.Update();
+                dbcon.Close();
 
                 Type t = typeof(EstateSettings);
                 m_Fields = t.GetFields(BindingFlags.NonPublic |
@@ -143,7 +144,6 @@ namespace OpenSim.Data.MySQL
             using (MySqlConnection dbcon = new MySqlConnection(m_connectionString))
             {
                 dbcon.Open();
-
                 cmd.Connection = dbcon;
 
                 bool found = false;
@@ -171,6 +171,8 @@ namespace OpenSim.Data.MySQL
                         }
                     }
                 }
+                dbcon.Close();
+                cmd.Connection = null;
 
                 if (!found && create)
                 {
@@ -231,6 +233,7 @@ namespace OpenSim.Data.MySQL
 
                     es.Save();
                 }
+                dbcon.Close();
             }
         }
 
@@ -263,6 +266,7 @@ namespace OpenSim.Data.MySQL
 
                     cmd.ExecuteNonQuery();
                 }
+                dbcon.Close();
             }
 
             SaveBanList(es);
@@ -300,6 +304,7 @@ namespace OpenSim.Data.MySQL
                         }
                     }
                 }
+                dbcon.Close();
             }
         }
 
@@ -329,6 +334,7 @@ namespace OpenSim.Data.MySQL
                         cmd.Parameters.Clear();
                     }
                 }
+                dbcon.Close();
             }
         }
 
@@ -358,6 +364,7 @@ namespace OpenSim.Data.MySQL
                         cmd.Parameters.Clear();
                     }
                 }
+                dbcon.Close();
             }
         }
 
@@ -383,6 +390,7 @@ namespace OpenSim.Data.MySQL
                         }
                     }
                 }
+                dbcon.Close();
             }
 
             return uuids.ToArray();
@@ -403,19 +411,19 @@ namespace OpenSim.Data.MySQL
                 return e;
             }
         }
-        
+
         public List<EstateSettings> LoadEstateSettingsAll()
         {
-            List<EstateSettings> allEstateSettings = new List<EstateSettings>();            
-            
+            List<EstateSettings> allEstateSettings = new List<EstateSettings>();
+
             List<int> allEstateIds = GetEstatesAll();
-            
+
             foreach (int estateId in allEstateIds)
                 allEstateSettings.Add(LoadEstateSettings(estateId));
-            
+
             return allEstateSettings;
         }
-        
+
         public List<int> GetEstatesAll()
         {
             List<int> result = new List<int>();
@@ -437,11 +445,10 @@ namespace OpenSim.Data.MySQL
                         reader.Close();
                     }
                 }
-
                 dbcon.Close();
             }
 
-            return result;            
+            return result;
         }
 
         public List<int> GetEstates(string search)
@@ -466,7 +473,6 @@ namespace OpenSim.Data.MySQL
                         reader.Close();
                     }
                 }
-
                 dbcon.Close();
             }
 

@@ -78,6 +78,7 @@ namespace OpenSim.Data.MySQL
                 dbcon.Open();
                 Migration m = new Migration(dbcon, assem, "InventoryStore");
                 m.Update();
+                dbcon.Close();
             }
         }
 
@@ -130,6 +131,7 @@ namespace OpenSim.Data.MySQL
                                         items.Add(item);
                                 }
 
+                                dbcon.Close();
                                 return items;
                             }
                         }
@@ -170,6 +172,7 @@ namespace OpenSim.Data.MySQL
                                 while (reader.Read())
                                     items.Add(readInventoryFolder(reader));
 
+                                dbcon.Close();
                                 return items;
                             }
                         }
@@ -221,6 +224,7 @@ namespace OpenSim.Data.MySQL
                                 if (items.Count > 0)
                                     rootFolder = items[0];
 
+                                dbcon.Close();
                                 return rootFolder;
                             }
                         }
@@ -261,6 +265,7 @@ namespace OpenSim.Data.MySQL
                                 while (reader.Read())
                                     items.Add(readInventoryFolder(reader));
 
+                                dbcon.Close();
                                 return items;
                             }
                         }
@@ -288,7 +293,7 @@ namespace OpenSim.Data.MySQL
                 // TODO: this is to handle a case where NULLs creep in there, which we are not sure is endemic to the system, or legacy.  It would be nice to live fix these.
                 // (DBGuid.FromDB() reads db NULLs as well, returns UUID.Zero)
                 item.CreatorId = reader["creatorID"].ToString();
-                
+
                 // Be a bit safer in parsing these because the
                 // database doesn't enforce them to be not null, and
                 // the inventory still works if these are weird in the
@@ -352,6 +357,7 @@ namespace OpenSim.Data.MySQL
                                 if (reader.Read())
                                     item = readInventoryItem(reader);
 
+                                dbcon.Close();
                                 return item;
                             }
                         }
@@ -417,6 +423,7 @@ namespace OpenSim.Data.MySQL
                                 if (reader.Read())
                                     folder = readInventoryFolder(reader);
 
+                                dbcon.Close();
                                 return folder;
                             }
                         }
@@ -453,7 +460,7 @@ namespace OpenSim.Data.MySQL
                 itemName = item.Name.Substring(0, 64);
                 m_log.Warn("[INVENTORY DB]: Name field truncated from " + item.Name.Length + " to " + itemName.Length + " characters on add item");
             }
-            
+
             string itemDesc = item.Description;
             if (item.Description.Length > 128)
             {
@@ -490,10 +497,10 @@ namespace OpenSim.Data.MySQL
                         result.Parameters.AddWithValue("?groupID", item.GroupID);
                         result.Parameters.AddWithValue("?groupOwned", item.GroupOwned);
                         result.Parameters.AddWithValue("?flags", item.Flags);
-    
+
                         lock (m_dbLock)
                             result.ExecuteNonQuery();
-    
+
                         result.Dispose();
                     }
 
@@ -504,6 +511,7 @@ namespace OpenSim.Data.MySQL
                         lock (m_dbLock)
                             result.ExecuteNonQuery();
                     }
+                    dbcon.Close();
                 }
             }
             catch (MySqlException e)
@@ -540,6 +548,7 @@ namespace OpenSim.Data.MySQL
                         lock (m_dbLock)
                             cmd.ExecuteNonQuery();
                     }
+                    dbcon.Close();
                 }
             }
             catch (MySqlException e)
@@ -600,6 +609,7 @@ namespace OpenSim.Data.MySQL
                         m_log.Error(e.ToString());
                     }
                 }
+                dbcon.Close();
             }
         }
 
@@ -630,7 +640,7 @@ namespace OpenSim.Data.MySQL
                 {
                     cmd.Parameters.AddWithValue("?folderID", folder.ID.ToString());
                     cmd.Parameters.AddWithValue("?parentFolderID", folder.ParentID.ToString());
-    
+
                     try
                     {
                         lock (m_dbLock)
@@ -643,6 +653,7 @@ namespace OpenSim.Data.MySQL
                         m_log.Error(e.ToString());
                     }
                 }
+                dbcon.Close();
             }
         }
 
@@ -806,6 +817,7 @@ namespace OpenSim.Data.MySQL
                         lock (m_dbLock)
                             cmd.ExecuteNonQuery();
                     }
+                    dbcon.Close();
                 }
             }
             catch (MySqlException e)
@@ -833,6 +845,7 @@ namespace OpenSim.Data.MySQL
                         lock (m_dbLock)
                             cmd.ExecuteNonQuery();
                     }
+                    dbcon.Close();
                 }
             }
             catch (MySqlException e)
@@ -860,7 +873,7 @@ namespace OpenSim.Data.MySQL
             deleteOneFolder(folderID);
             deleteItemsInFolder(folderID);
         }
-        
+
         public List<InventoryItemBase> fetchActiveGestures(UUID avatarID)
         {
             lock (m_dbLock)
@@ -886,6 +899,7 @@ namespace OpenSim.Data.MySQL
                                     if (item != null)
                                         list.Add(item);
                                 }
+                                dbcon.Close();
                                 return list;
                             }
                         }

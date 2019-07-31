@@ -55,7 +55,7 @@ namespace OpenSim.Capabilities.Handlers
         private IAssetService m_assetService;
 
         public const string DefaultFormat = "x-j2c";
-  
+
         public GetTextureHandler(IAssetService assService)
         {
             m_assetService = assService;
@@ -66,8 +66,6 @@ namespace OpenSim.Capabilities.Handlers
             Hashtable ret = new Hashtable();
             ret["int_response_code"] = (int)System.Net.HttpStatusCode.NotFound;
             ret["content_type"] = "text/plain";
-            ret["keepalive"] = false;
-            ret["reusecontext"] = false;
             ret["int_bytes"] = 0;
             string textureStr = (string)request["texture_id"];
             string format = (string)request["format"];
@@ -83,7 +81,7 @@ namespace OpenSim.Capabilities.Handlers
             if (!String.IsNullOrEmpty(textureStr) && UUID.TryParse(textureStr, out textureID))
             {
 //                m_log.DebugFormat("[GETTEXTURE]: Received request for texture id {0}", textureID);
-                
+
                 string[] formats;
                 if (!string.IsNullOrEmpty(format))
                 {
@@ -112,8 +110,6 @@ namespace OpenSim.Capabilities.Handlers
                     ret["error_status_text"] = "not found";
                     ret["str_response_string"] = "not found";
                     ret["content_type"] = "text/plain";
-                    ret["keepalive"] = false;
-                    ret["reusecontext"] = false;
                     ret["int_bytes"] = 0;
                 }
             }
@@ -129,7 +125,7 @@ namespace OpenSim.Capabilities.Handlers
         }
 
         /// <summary>
-        /// 
+        ///
         /// </summary>
         /// <param name="httpRequest"></param>
         /// <param name="httpResponse"></param>
@@ -190,7 +186,7 @@ namespace OpenSim.Capabilities.Handlers
 
             //response = new Hashtable();
 
-           
+
             //WriteTextureData(request,response,null,format);
             // not found
             //m_log.Warn("[GETTEXTURE]: Texture " + textureID + " not found");
@@ -214,7 +210,7 @@ namespace OpenSim.Capabilities.Handlers
             {
                 // Range request
                 int start, end;
-                if (TryParseRange(range, out start, out end))
+                if (Util.TryParseHttpRange(range, out start, out end))
                 {
                     // Before clamping start make sure we can satisfy it in order to avoid
                     // sending back the last byte instead of an error status
@@ -253,24 +249,13 @@ namespace OpenSim.Capabilities.Handlers
 //                        m_log.Debug("Serving " + start + " to " + end + " of " + texture.Data.Length + " bytes for texture " + texture.ID);
 
                         response["content-type"] = texture.Metadata.ContentType;
+                        response["int_response_code"] = (int)System.Net.HttpStatusCode.PartialContent;
+                        headers["Content-Range"] = String.Format("bytes {0}-{1}/{2}", start, end, texture.Data.Length);
 
-                        if (start == 0 && len == texture.Data.Length) // well redudante maybe
-                        {
-                            response["int_response_code"] = (int)System.Net.HttpStatusCode.OK;
-                            response["bin_response_data"] = texture.Data;
-                            response["int_bytes"] = texture.Data.Length;
-                        }
-                        else
-                        {
-                            response["int_response_code"] = (int)System.Net.HttpStatusCode.PartialContent;
-                            headers["Content-Range"] = String.Format("bytes {0}-{1}/{2}", start, end, texture.Data.Length);
-
-                            byte[] d = new byte[len];
-                            Array.Copy(texture.Data, start, d, 0, len);
-                            response["bin_response_data"] = d;
-                            response["int_bytes"] = len;
-                        }
-//                        response.Body.Write(texture.Data, start, len);
+                        byte[] d = new byte[len];
+                        Array.Copy(texture.Data, start, d, 0, len);
+                        response["bin_response_data"] = d;
+                        response["int_bytes"] = len;
                     }
                 }
                 else
@@ -287,7 +272,7 @@ namespace OpenSim.Capabilities.Handlers
                     response["content_type"] = texture.Metadata.ContentType;
                 else
                     response["content_type"] = "image/" + format;
-                
+
                 response["bin_response_data"] = texture.Data;
                 response["int_bytes"] = texture.Data.Length;
 
@@ -304,86 +289,41 @@ namespace OpenSim.Capabilities.Handlers
 //                    texture.FullID, range, response.StatusCode, response.ContentLength, texture.Data.Length);
         }
 
-        /// <summary>
-        /// Parse a range header.
-        /// </summary>
-        /// <remarks>
-        /// As per http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html,
-        /// this obeys range headers with two values (e.g. 533-4165) and no second value (e.g. 533-).
-        /// Where there is no value, -1 is returned.
-        /// FIXME: Need to cover the case where only a second value is specified (e.g. -4165), probably by returning -1
-        /// for start.</remarks>
-        /// <returns></returns>
-        /// <param name='header'></param>
-        /// <param name='start'>Start of the range.  Undefined if this was not a number.</param>
-        /// <param name='end'>End of the range.  Will be -1 if no end specified.  Undefined if there was a raw string but this was not a number.</param>
-        private bool TryParseRange(string header, out int start, out int end)
-        {
-            start = end = 0;
-
-            if (header.StartsWith("bytes="))
-            {
-                string[] rangeValues = header.Substring(6).Split('-');
-
-                if (rangeValues.Length == 2)
-                {
-                    if (!Int32.TryParse(rangeValues[0], out start))
-                        return false;
-
-                    string rawEnd = rangeValues[1];
-
-                    if (rawEnd == "")
-                    {
-                        end = -1;
-                        return true;
-                    }
-                    else if (Int32.TryParse(rawEnd, out end))
-                    {
-                        return true;
-                    }
-                }
-            }
-
-            start = end = 0;
-            return false;
-        }
-
         private byte[] ConvertTextureData(AssetBase texture, string format)
         {
             m_log.DebugFormat("[GETTEXTURE]: Converting texture {0} to {1}", texture.ID, format);
             byte[] data = new byte[0];
 
             MemoryStream imgstream = new MemoryStream();
-            Bitmap mTexture = new Bitmap(1, 1);
-            ManagedImage managedImage;
-            Image image = (Image)mTexture;
+            Bitmap mTexture = null;
+            ManagedImage managedImage = null;
+            Image image = null;
 
             try
             {
                 // Taking our jpeg2000 data, decoding it, then saving it to a byte array with regular data
 
-                imgstream = new MemoryStream();
-
                 // Decode image to System.Drawing.Image
-                if (OpenJPEG.DecodeToImage(texture.Data, out managedImage, out image))
+                if (OpenJPEG.DecodeToImage(texture.Data, out managedImage, out image) && image != null)
                 {
                     // Save to bitmap
                     mTexture = new Bitmap(image);
 
-                    EncoderParameters myEncoderParameters = new EncoderParameters();
-                    myEncoderParameters.Param[0] = new EncoderParameter(Encoder.Quality, 95L);
-
-                    // Save bitmap to stream
-                    ImageCodecInfo codec = GetEncoderInfo("image/" + format);
-                    if (codec != null)
+                    using(EncoderParameters myEncoderParameters = new EncoderParameters())
                     {
-                        mTexture.Save(imgstream, codec, myEncoderParameters);
-                        // Write the stream to a byte array for output
-                        data = imgstream.ToArray();
-                    }
-                    else
-                        m_log.WarnFormat("[GETTEXTURE]: No such codec {0}", format);
+                        myEncoderParameters.Param[0] = new EncoderParameter(Encoder.Quality,95L);
 
+                        // Save bitmap to stream
+                        ImageCodecInfo codec = GetEncoderInfo("image/" + format);
+                        if (codec != null)
+                        {
+                            mTexture.Save(imgstream, codec, myEncoderParameters);
+                        // Write the stream to a byte array for output
+                            data = imgstream.ToArray();
+                        }
+                        else
+                            m_log.WarnFormat("[GETTEXTURE]: No such codec {0}", format);
+                    }
                 }
             }
             catch (Exception e)
@@ -400,11 +340,10 @@ namespace OpenSim.Capabilities.Handlers
                 if (image != null)
                     image.Dispose();
 
+                if(managedImage != null)
+                    managedImage.Clear();
                 if (imgstream != null)
-                {
-                    imgstream.Close();
                     imgstream.Dispose();
-                }
             }
 
             return data;

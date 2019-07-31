@@ -82,11 +82,11 @@ namespace OpenSim.Server.Handlers.Authentication
                 switch (p[0])
                 {
                 case "plain":
-                    StreamReader sr = new StreamReader(request);
-                    string body = sr.ReadToEnd();
-                    sr.Close();
-
+                    string body;
+                    using(StreamReader sr = new StreamReader(request))
+                        body = sr.ReadToEnd();
                     return DoPlainMethods(body);
+
                 case "crypt":
                     byte[] buffer = new byte[request.Length];
                     long length = request.Length;
@@ -132,41 +132,41 @@ namespace OpenSim.Server.Handlers.Authentication
                 case "authenticate":
                     if (!request.ContainsKey("PASSWORD"))
                         return FailureResult();
-                    
+
                     token = m_AuthenticationService.Authenticate(principalID, request["PASSWORD"].ToString(), lifetime);
-    
+
                     if (token != String.Empty)
                         return SuccessResult(token);
                     return FailureResult();
-    
+
                 case "setpassword":
                     if (!m_AllowSetPassword)
                         return FailureResult();
 
                     if (!request.ContainsKey("PASSWORD"))
                         return FailureResult();
-    
+
                     if (m_AuthenticationService.SetPassword(principalID, request["PASSWORD"].ToString()))
                         return SuccessResult();
                     else
                         return FailureResult();
-    
+
                 case "verify":
                     if (!request.ContainsKey("TOKEN"))
                         return FailureResult();
-                    
+
                     if (m_AuthenticationService.Verify(principalID, request["TOKEN"].ToString(), lifetime))
                         return SuccessResult();
-    
+
                     return FailureResult();
-    
+
                 case "release":
                     if (!request.ContainsKey("TOKEN"))
                         return FailureResult();
-    
+
                     if (m_AuthenticationService.Release(principalID, request["TOKEN"].ToString()))
                         return SuccessResult();
-    
+
                     return FailureResult();
 
                 case "getauthinfo":

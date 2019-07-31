@@ -33,33 +33,18 @@ using OpenSim.Framework;
 using OpenMetaverse;
 using OpenSim.Region.PhysicsModules.SharedBase;
 
-/*
- * Steps to add a new prioritization policy:
- * 
- *  - Add a new value to the UpdatePrioritizationSchemes enum.
- *  - Specify this new value in the [InterestManagement] section of your
- *    OpenSim.ini. The name in the config file must match the enum value name
- *    (although it is not case sensitive).
- *  - Write a new GetPriorityBy*() method in this class.
- *  - Add a new entry to the switch statement in GetUpdatePriority() that calls
- *    your method.
- */
-
 namespace OpenSim.Region.Framework.Scenes
 {
     public enum UpdatePrioritizationSchemes
     {
-        Time = 0,
-        Distance = 1,
-        SimpleAngularDistance = 2,
-        FrontBack = 3,
-        BestAvatarResponsiveness = 4,
+        SimpleAngularDistance = 0,
+        BestAvatarResponsiveness = 1,
     }
 
     public class Prioritizer
     {
         private static readonly ILog m_log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
-        
+
         private Scene m_scene;
 
         public Prioritizer(Scene scene)
@@ -68,14 +53,7 @@ namespace OpenSim.Region.Framework.Scenes
         }
 
         /// <summary>
-        /// Returns the priority queue into which the update should be placed. Updates within a
-        /// queue will be processed in arrival order. There are currently 12 priority queues
-        /// implemented in PriorityQueue class in LLClientView. Queue 0 is generally retained
-        /// for avatar updates. The fair queuing discipline for processing the priority queues
-        /// assumes that the number of entities in each priority queues increases exponentially.
-        /// So for example... if queue 1 contains all updates within 10m of the avatar or camera
-        /// then queue 2 at 20m is about 3X bigger in space & about 3X bigger in total number
-        /// of updates.
+        /// Returns the priority queue into which the update should be placed.
         /// </summary>
         public uint GetUpdatePriority(IClientAPI client, ISceneEntity entity)
         {
@@ -92,72 +70,18 @@ namespace OpenSim.Region.Framework.Scenes
 
             uint priority;
 
-
-            // HACK 
-            return GetPriorityByBestAvatarResponsiveness(client, entity);
-
-            
             switch (m_scene.UpdatePrioritizationScheme)
             {
-                case UpdatePrioritizationSchemes.Time:
-                    priority = GetPriorityByTime(client, entity);
-                    break;
-                case UpdatePrioritizationSchemes.Distance:
-                    priority = GetPriorityByDistance(client, entity);
-                    break;
                 case UpdatePrioritizationSchemes.SimpleAngularDistance:
-                    priority = GetPriorityByDistance(client, entity); // TODO: Reimplement SimpleAngularDistance
-                    break;
-                case UpdatePrioritizationSchemes.FrontBack:
-                    priority = GetPriorityByFrontBack(client, entity);
+                    priority = GetPriorityByAngularDistance(client, entity);
                     break;
                 case UpdatePrioritizationSchemes.BestAvatarResponsiveness:
+                default:
                     priority = GetPriorityByBestAvatarResponsiveness(client, entity);
                     break;
-                default:
-                    throw new InvalidOperationException("UpdatePrioritizationScheme not defined.");
             }
-            
+
             return priority;
-        }
-
-        private uint GetPriorityByTime(IClientAPI client, ISceneEntity entity)
-        {
-            // And anything attached to this avatar gets top priority as well
-            if (entity is SceneObjectPart)
-            {
-                SceneObjectPart sop = (SceneObjectPart)entity;
-                if (sop.ParentGroup.IsAttachment && client.AgentId == sop.ParentGroup.AttachedAvatar)
-                    return 1;
-            }
-
-            return PriorityQueue.NumberOfImmediateQueues; // first queue past the immediate queues
-        }
-
-        private uint GetPriorityByDistance(IClientAPI client, ISceneEntity entity)
-        {
-            // And anything attached to this avatar gets top priority as well
-            if (entity is SceneObjectPart)
-            {
-                SceneObjectPart sop = (SceneObjectPart)entity;
-                if (sop.ParentGroup.IsAttachment && client.AgentId == sop.ParentGroup.AttachedAvatar)
-                    return 1;
-            }
-
-            return ComputeDistancePriority(client,entity,false);
-        }
-        
-        private uint GetPriorityByFrontBack(IClientAPI client, ISceneEntity entity)
-        {
-            // And anything attached to this avatar gets top priority as well
-            if (entity is SceneObjectPart)
-            {
-                SceneObjectPart sop = (SceneObjectPart)entity;
-                if (sop.ParentGroup.IsAttachment && client.AgentId == sop.ParentGroup.AttachedAvatar)
-                    return 1;
-            }
-
-            return ComputeDistancePriority(client,entity,true);
         }
 
         private uint GetPriorityByBestAvatarResponsiveness(IClientAPI client, ISceneEntity entity)
@@ -173,14 +97,21 @@ namespace OpenSim.Region.Framework.Scenes
 
                 if (entity is SceneObjectPart)
                 {
-                    // Attachments are high priority, 
-                    if (((SceneObjectPart)entity).ParentGroup.IsAttachment)
+                    SceneObjectGroup sog = ((SceneObjectPart)entity).ParentGroup;
+                    // Attachments are high priority,
+                    if (sog.IsAttachment)
                         return 2;
 
+                    if(presence.ParentPart != null)
+                    {
+                        if(presence.ParentPart.ParentGroup == sog)
+                            return 2;
+                    }
+                    
                     pqueue = ComputeDistancePriority(client, entity, false);
 
                     // Non physical prims are lower priority than physical prims
-                    PhysicsActor physActor = ((SceneObjectPart)entity).ParentGroup.RootPart.PhysActor;
+                    PhysicsActor physActor = sog.RootPart.PhysActor;
                     if (physActor == null || !physActor.IsPhysical)
                         pqueue++;
                 }
@@ -197,7 +128,7 @@ namespace OpenSim.Region.Framework.Scenes
             ScenePresence presence = m_scene.GetScenePresence(client.AgentId);
             if (presence == null)
             {
-                // this shouldn't happen, it basically means that we are prioritizing 
+                // this shouldn't happen, it basically means that we are prioritizing
                 // updates to send to a client that doesn't have a presence in the scene
                 // seems like there's race condition here...
 
@@ -205,7 +136,7 @@ namespace OpenSim.Region.Framework.Scenes
                 // throw new InvalidOperationException("Prioritization agent not defined");
                 return PriorityQueue.NumberOfQueues - 1;
             }
-                
+
             // Use group position for child prims, since we are putting child prims in
             // the same queue with the root of the group, the root prim (which goes into
             // the queue first) should always be sent first, no need to adjust child prim
@@ -228,31 +159,20 @@ namespace OpenSim.Region.Framework.Scenes
 
             Vector3 presencePos = presence.AbsolutePosition;
 
-            // Compute the distance... 
+            // Compute the distance...
             double distance = Vector3.Distance(presencePos, entityPos);
 
             // And convert the distance to a priority queue, this computation gives queues
             // at 10, 20, 40, 80, 160, 320, 640, and 1280m
             uint pqueue = PriorityQueue.NumberOfImmediateQueues + 1; // reserve attachments queue
-            uint queues = PriorityQueue.NumberOfQueues - PriorityQueue.NumberOfImmediateQueues;
-/*            
-            for (int i = 0; i < queues - 1; i++)
-            {
-                if (distance < 30 * Math.Pow(2.0,i))
-                    break;
-                pqueue++;
-            }
-*/
             if (distance > 10f)
             {
-                float tmp = (float)Math.Log((double)distance) * 1.4426950408889634073599246810019f - 3.3219280948873623478703194294894f;
+                float tmp = (float)Math.Log((double)distance) * 1.442695f - 3.321928f;
                 // for a map identical to original:
-                // now 
+                // now
                 // 1st constant is 1/(log(2)) (natural log) so we get log2(distance)
                 // 2st constant makes it be log2(distance/10)
                 pqueue += (uint)tmp;
-                if (pqueue > queues - 1)
-                    pqueue = queues - 1;
             }
 
             // If this is a root agent, then determine front & back
@@ -266,12 +186,86 @@ namespace OpenSim.Region.Framework.Scenes
                 // Plane equation
                 float d = -Vector3.Dot(camPosition, camAtAxis);
                 float p = Vector3.Dot(camAtAxis, entityPos) + d;
-                if (p < 0.0f) 
+                if (p < 0.0f)
                     pqueue++;
             }
 
             return pqueue;
         }
 
+        private uint GetPriorityByAngularDistance(IClientAPI client, ISceneEntity entity)
+        {
+            ScenePresence presence = m_scene.GetScenePresence(client.AgentId);
+            if (presence == null)
+                return PriorityQueue.NumberOfQueues - 1;
+
+            uint pqueue = ComputeAngleDistancePriority(presence, entity);
+            return pqueue;
+        }
+
+        private uint ComputeAngleDistancePriority(ScenePresence presence, ISceneEntity entity)
+        {
+            uint pqueue = PriorityQueue.NumberOfImmediateQueues;
+            float distance;
+
+            Vector3 presencePos = presence.AbsolutePosition;
+            if(entity is ScenePresence)
+            {
+                ScenePresence sp = entity as ScenePresence;
+                distance = Vector3.DistanceSquared(presencePos, sp.AbsolutePosition);
+                if (distance > 400f)
+                {
+                    float tmp = (float)Math.Log(distance) * 0.7213475f - 4.321928f;
+                    pqueue += (uint)tmp;
+                }
+                return pqueue;
+            }
+
+            SceneObjectPart sop = entity as SceneObjectPart;
+            SceneObjectGroup group = sop.ParentGroup;
+            if(presence.ParentPart != null)
+            {
+                if(presence.ParentPart.ParentGroup == group)
+                    return pqueue;
+            }
+
+            if (group.IsAttachment)
+            {
+                if(group.RootPart.LocalId == presence.LocalId)
+                    return pqueue;
+
+                distance = Vector3.DistanceSquared(presencePos, group.AbsolutePosition);
+                if (distance > 400f)
+                {
+                    float tmp = (float)Math.Log(distance) * 0.7213475f - 4.321928f;
+                    pqueue += (uint)tmp;
+                }
+                return pqueue;
+            }
+
+            float bradius = group.GetBoundsRadius();
+            Vector3 grppos = group.getCenterOffset();
+            distance = Vector3.Distance(presencePos, grppos);
+            distance -= bradius;
+            distance *= group.getAreaFactor();
+            if(group.IsAttachment)
+                distance *= 0.5f;
+            else if(group.UsesPhysics)
+                distance *= 0.6f;
+            else if(group.GetSittingAvatarsCount() > 0)
+                distance *= 0.5f;
+
+            if (distance > 10f)
+            {
+                float tmp = (float)Math.Log(distance) * 1.442695f - 3.321928f;
+                // for a map identical to original:
+                // now
+                // 1st constant is 1/(log(2)) (natural log) so we get log2(distance)
+                // 2st constant makes it be log2(distance/10)
+                pqueue += (uint)tmp;
+            }
+
+            return pqueue;
+        }
     }
 }

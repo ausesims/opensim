@@ -63,8 +63,6 @@
     ;AssetCaching = "CenomeMemoryAssetCache"
     ;Include-CenomeCache = "config-include/CenomeCache.ini"
 
-    ;AssetCaching = "GlynnTuckerAssetCache"
-
     ;; Optionally, the port for the LLProxyLoginModule module can be changed
     ;Setup_LLProxyLoginModule = "9090/"
 
@@ -85,6 +83,7 @@
     ; Change this to your grid-wide inventory server
     ;
     InventoryServerURI = "${Const|BaseURL}:${Const|PrivatePort}"
+    ;MaxRetries = 0
 
 [GridInfo]
     ;
@@ -104,7 +103,7 @@
 
     ; === HG ONLY ===
     ;; Change this to the address of your Gatekeeper service
-    ;; (usually bundled with the rest of the services in one 
+    ;; (usually bundled with the rest of the services in one
     ;; Robust server in port ${Const|PublicPort}, but not always)
     Gatekeeper="${Const|BaseURL}:${Const|PublicPort}"
 
@@ -121,7 +120,7 @@
 [Messaging]
     ; === HG ONLY ===
     ;; Change this to the address of your Gatekeeper service
-    ;; (usually bundled with the rest of the services in one 
+    ;; (usually bundled with the rest of the services in one
     ;; Robust server in port ${Const|PublicPort}, but not always)
     Gatekeeper = "${Const|BaseURL}:${Const|PublicPort}"
 
@@ -170,7 +169,7 @@
 [HGInventoryAccessModule]
     ;
     ; === HG ONLY ===
-    ; Change this to your server 
+    ; Change this to your server
     ; accessible from other grids
     ;
     HomeURI = "${Const|BaseURL}:${Const|PublicPort}"
@@ -186,7 +185,7 @@
 
     ;; Warning: advanced and unusual. Default is false.
     ;; Enables configurations where grids share user services, including inventory,
-    ;; while separating regions' assets from users' assets. Asset transfer between 
+    ;; while separating regions' assets from users' assets. Asset transfer between
     ;; the users' asset server and the regions' asset server is done in HG-like manner.
     ; CheckSeparateAssets = false
     ; RegionHGAssetServerURI = ${Const|BaseURL}:${Const|PublicPort}
@@ -195,7 +194,7 @@
 [HGAssetService]
     ;
     ; === HG ONLY ===
-    ; Change this to your server 
+    ; Change this to your server
     ; accessible from other grids
     ;
     HomeURI = "${Const|BaseURL}:${Const|PublicPort}"
@@ -203,11 +202,11 @@
     ;; The asset types that this grid can export to / import from other grids.
     ;; Comma separated.
     ;; Valid values are all the asset types in OpenMetaverse.AssetType, namely:
-    ;; Unknown, Texture, Sound, CallingCard, Landmark, Clothing, Object, Notecard, LSLText, 
-    ;; LSLBytecode, TextureTGA, Bodypart, SoundWAV, ImageTGA, ImageJPEG, Animation, Gesture, Mesh 
+    ;; Unknown, Texture, Sound, CallingCard, Landmark, Clothing, Object, Notecard, LSLText,
+    ;; LSLBytecode, TextureTGA, Bodypart, SoundWAV, ImageTGA, ImageJPEG, Animation, Gesture, Mesh
     ;;
     ;; Leave blank or commented if you don't want to apply any restrictions.
-    ;; A more strict, but still reasonable, policy may be to disallow the exchange 
+    ;; A more strict, but still reasonable, policy may be to disallow the exchange
     ;; of scripts, like so:
     ; DisallowExport ="LSLText"
     ; DisallowImport ="LSLBytecode"
@@ -243,3 +242,6 @@
 
     ;; Capability assigned by the grid administrator for the simulator
     ;; SimulatorCapability = "00000000-0000-0000-0000-000000000000"
+
+[MuteListService]
+    MuteListServerURI = "${Const|BaseURL}:${Const|PrivatePort}"

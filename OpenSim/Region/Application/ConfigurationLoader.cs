@@ -43,10 +43,10 @@ namespace OpenSim
     public class ConfigurationLoader
     {
         private static readonly ILog m_log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
-        
+
         /// <summary>
         /// Various Config settings the region needs to start
-        /// Physics Engine, Mesh Engine, GridMode, PhysicsPrim allowed, Neighbor, 
+        /// Physics Engine, Mesh Engine, GridMode, PhysicsPrim allowed, Neighbor,
         /// StorageDLL, Storage Connection String, Estate connection String, Client Stack
         /// Standalone settings.
         /// </summary>
@@ -140,7 +140,6 @@ namespace OpenSim
 
             m_config = new OpenSimConfigSource();
             m_config.Source = new IniConfigSource();
-            m_config.Source.Merge(DefaultConfig());
 
             m_log.Info("[CONFIG]: Reading configuration settings");
 
@@ -188,7 +187,7 @@ namespace OpenSim
                         {
                             iniFileExists = true;
                             AddIncludes(overrideConfig, overrideSources);
-                        } 
+                        }
                     }
                     m_config.Source.Merge(overrideConfig.Source);
                 }
@@ -198,7 +197,7 @@ namespace OpenSim
             {
                 m_log.FatalFormat("[CONFIG]: Could not load any configuration");
                 Environment.Exit(1);
-            } 
+            }
             else if (!iniFileExists)
             {
                 m_log.FatalFormat("[CONFIG]: Could not load any configuration");
@@ -257,14 +256,14 @@ namespace OpenSim
                             string path = Path.Combine(basepath, chunkWithoutWildcards);
                             path = Path.GetFullPath(path) + chunkWithWildcards;
                             string[] paths = Util.Glob(path);
-                            
+
                             // If the include path contains no wildcards, then warn the user that it wasn't found.
                             if (wildcardIndex == -1 && paths.Length == 0)
                             {
                                 m_log.WarnFormat("[CONFIG]: Could not find include file {0}", path);
                             }
                             else
-                            {                            
+                            {
                                 foreach (string p in paths)
                                 {
                                     if (!sources.Contains(p))
@@ -329,47 +328,6 @@ namespace OpenSim
         }
 
         /// <summary>
-        /// Setup a default config values in case they aren't present in the ini file
-        /// </summary>
-        /// <returns>A Configuration source containing the default configuration</returns>
-        private static IConfigSource DefaultConfig()
-        {
-            IConfigSource defaultConfig = new IniConfigSource();
-
-            {
-                IConfig config = defaultConfig.Configs["Startup"];
-
-                if (null == config)
-                    config = defaultConfig.AddConfig("Startup");
-
-                config.Set("region_info_source", "filesystem");
-
-                config.Set("physics", "OpenDynamicsEngine");
-                config.Set("meshing", "Meshmerizer");
-                config.Set("physical_prim", true);
-                config.Set("serverside_object_permissions", true);
-                config.Set("storage_prim_inventories", true);
-                config.Set("startup_console_commands_file", String.Empty);
-                config.Set("shutdown_console_commands_file", String.Empty);
-                config.Set("DefaultScriptEngine", "XEngine");
-                config.Set("clientstack_plugin", "OpenSim.Region.ClientStack.LindenUDP.dll");
-                // life doesn't really work without this
-                config.Set("EventQueue", true);
-            }
-
-            {
-                IConfig config = defaultConfig.Configs["Network"];
-
-                if (null == config)
-                    config = defaultConfig.AddConfig("Network");
-
-                config.Set("http_listener_port", ConfigSettings.DefaultRegionHttpPort);
-            }
-
-            return defaultConfig;
-        }
-
-        /// <summary>
         /// Read initial region settings from the ConfigSource
         /// </summary>
         protected virtual void ReadConfigSettings()
@@ -380,7 +338,7 @@ namespace OpenSim
                 m_configSettings.PhysicsEngine = startupConfig.GetString("physics");
                 m_configSettings.MeshEngineName = startupConfig.GetString("meshing");
 
-                m_configSettings.ClientstackDll 
+                m_configSettings.ClientstackDll
                     = startupConfig.GetString("clientstack_plugin", "OpenSim.Region.ClientStack.LindenUDP.dll");
             }
 

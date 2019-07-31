@@ -33,6 +33,9 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Timers;
+using System.Net;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using log4net;
 using log4net.Appender;
 using log4net.Core;
@@ -68,9 +71,9 @@ namespace OpenSim.Framework.Servers
 
         private int m_periodDiagnosticTimerMS = 60 * 60 * 1000;
         private Timer m_periodicDiagnosticsTimer = new Timer(60 * 60 * 1000);
-        
+
         /// <summary>
-        /// Random uuid for private data 
+        /// Random uuid for private data
         /// </summary>
         protected string m_osSecret = String.Empty;
 
@@ -85,7 +88,27 @@ namespace OpenSim.Framework.Servers
             // Random uuid for private data
             m_osSecret = UUID.Random().ToString();
         }
-        
+
+        private static bool m_NoVerifyCertChain = false;
+        private static bool m_NoVerifyCertHostname = false;
+
+        public static bool ValidateServerCertificate(
+            object sender,
+            X509Certificate certificate,
+            X509Chain chain,
+            SslPolicyErrors sslPolicyErrors)
+        {
+            if (m_NoVerifyCertChain)
+                sslPolicyErrors &= ~SslPolicyErrors.RemoteCertificateChainErrors;
+ 
+            if (m_NoVerifyCertHostname)
+                sslPolicyErrors &= ~SslPolicyErrors.RemoteCertificateNameMismatch;
+
+            if (sslPolicyErrors == SslPolicyErrors.None)
+                return true;
+
+            return false;
+        }             
         /// <summary>
         /// Must be overriden by child classes for their own server specific startup behaviour.
         /// </summary>
@@ -96,6 +119,11 @@ namespace OpenSim.Framework.Servers
             RegisterCommonComponents(Config);
 
             IConfig startupConfig = Config.Configs["Startup"];
+
+            m_NoVerifyCertChain = startupConfig.GetBoolean("NoVerifyCertChain", m_NoVerifyCertChain);
+            m_NoVerifyCertHostname = startupConfig.GetBoolean("NoVerifyCertHostname", m_NoVerifyCertHostname);
+            ServicePointManager.ServerCertificateValidationCallback = ValidateServerCertificate;
+
             int logShowStatsSeconds = startupConfig.GetInt("LogShowStatsSeconds", m_periodDiagnosticTimerMS / 1000);
             m_periodDiagnosticTimerMS = logShowStatsSeconds * 1000;
             m_periodicDiagnosticsTimer.Elapsed += new ElapsedEventHandler(LogDiagnostics);
@@ -104,25 +132,32 @@ namespace OpenSim.Framework.Servers
                 m_periodicDiagnosticsTimer.Interval = m_periodDiagnosticTimerMS;
                 m_periodicDiagnosticsTimer.Enabled = true;
             }
-        }       
+        }
 
         protected override void ShutdownSpecific()
-        {            
-            m_log.Info("[SHUTDOWN]: Shutdown processing on main thread complete.  Exiting...");
+        {
+            Watchdog.Enabled = false;
+            base.ShutdownSpecific();
+            
+            MainServer.Stop();
+
+            Thread.Sleep(500);
+            Util.StopThreadPool();
+            WorkManager.Stop();
 
             RemovePIDFile();
 
-            base.ShutdownSpecific();
+            m_log.Info("[SHUTDOWN]: Shutdown processing on main thread complete.  Exiting...");
 
-            if (!SuppressExit)
+           if (!SuppressExit)
                 Environment.Exit(0);
         }
-        
+
         /// <summary>
         /// Provides a list of help topics that are available.  Overriding classes should append their topics to the
         /// information returned when the base method is called.
         /// </summary>
-        /// 
+        ///
         /// <returns>
         /// A list of strings that represent different help topics on which more information is available
         /// </returns>
@@ -148,7 +183,7 @@ namespace OpenSim.Framework.Servers
         public virtual void Startup()
         {
             m_log.Info("[STARTUP]: Beginning startup processing");
-            
+
             m_log.Info("[STARTUP]: version: " + m_version + Environment.NewLine);
             // clr version potentially is more confusing than helpful, since it doesn't tell us if we're running under Mono/MS .NET and
             // the clr version number doesn't match the project version number under Mono.
@@ -156,20 +191,28 @@ namespace OpenSim.Framework.Servers
             m_log.InfoFormat(
                 "[STARTUP]: Operating system version: {0}, .NET platform {1}, {2}-bit\n",
                 Environment.OSVersion, Environment.OSVersion.Platform, Util.Is64BitProcess() ? "64" : "32");
-            
-            StartupSpecific();
-            
+
+            try
+            {
+                StartupSpecific();
+            }
+            catch(Exception e)
+            {
+                m_log.Fatal("Fatal error: " + e.ToString());
+                Environment.Exit(1);
+            }
+
             TimeSpan timeTaken = DateTime.Now - m_startuptime;
-            
+
 //            MainConsole.Instance.OutputFormat(
 //                "PLEASE WAIT FOR LOGINS TO BE ENABLED ON REGIONS ONCE SCRIPTS HAVE STARTED.  Non-script portion of startup took {0}m {1}s.",
 //                timeTaken.Minutes, timeTaken.Seconds);
         }
 
-        public string osSecret 
+        public string osSecret
         {
             // Secret uuid for the simulator
-            get { return m_osSecret; }            
+            get { return m_osSecret; }
         }
 
         public string StatReport(IOSHttpRequest httpRequest)
@@ -178,8 +221,8 @@ namespace OpenSim.Framework.Servers
             if (httpRequest.Query.ContainsKey("callback"))
             {
                 return httpRequest.Query["callback"].ToString() + "(" + StatsManager.SimExtraStats.XReport((DateTime.Now - m_startuptime).ToString() , m_version) + ");";
-            } 
-            else 
+            }
+            else
             {
                 return StatsManager.SimExtraStats.XReport((DateTime.Now - m_startuptime).ToString() , m_version);
             }

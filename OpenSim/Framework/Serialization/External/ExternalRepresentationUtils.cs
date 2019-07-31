@@ -106,13 +106,13 @@ namespace OpenSim.Framework.Serialization.External
                     {
                         errors = true;
                         parseExceptionAction(nodeToFill, nodeName, e);
-                        
+
                         if (xtr.EOF)
                         {
                             m_log.Debug("[ExternalRepresentationUtils]: Aborting ExecuteReadProcessors due to unexpected end of XML");
                             break;
                         }
-                        
+
                         if (++numErrors == 10)
                         {
                             m_log.Debug("[ExternalRepresentationUtils]: Aborting ExecuteReadProcessors due to too many parsing errors");
@@ -156,6 +156,7 @@ namespace OpenSim.Framework.Serialization.External
                 return xml;
 
             XmlDocument doc = new XmlDocument();
+
             doc.LoadXml(xml);
             XmlNodeList sops = doc.GetElementsByTagName("SceneObjectPart");
 
@@ -220,7 +221,7 @@ namespace OpenSim.Framework.Serialization.External
             using (StringWriter sw = new StringWriter())
             using (XmlTextWriter writer = new XmlTextWriter(sw))
             using (XmlTextReader wrappedReader = new XmlTextReader(xmlData, XmlNodeType.Element, null))
-            using (XmlReader reader = XmlReader.Create(wrappedReader, new XmlReaderSettings() { IgnoreWhitespace = true, ConformanceLevel = ConformanceLevel.Fragment }))
+            using (XmlReader reader = XmlReader.Create(wrappedReader, new XmlReaderSettings() { IgnoreWhitespace = true, ConformanceLevel = ConformanceLevel.Fragment}))
             {
                 TransformXml(reader, writer, sceneName, homeURL, userService, scopeID);
 
@@ -369,7 +370,7 @@ namespace OpenSim.Framework.Serialization.External
                         break;
 
                     case XmlNodeType.XmlDeclaration:
-                        // For various reasons, not all serializations have xml declarations (or consistent ones) 
+                        // For various reasons, not all serializations have xml declarations (or consistent ones)
                         // and as it's embedded inside a byte stream we don't need it anyway, so ignore.
                         break;
 

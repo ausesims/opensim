@@ -412,15 +412,15 @@ namespace OpenSim.Data.PGSQL
             query = @"WITH upsert AS (
                         UPDATE userpicks SET
                             pickuuid = :PickId, creatoruuid = :CreatorId, toppick = :TopPick, parceluuid = :ParcelId,
-                            name = :Name, description = :Desc, snapshotuuid = :SnapshotId, ""user"" = :User, 
-                            originalname = :Original, simname = :SimName, posglobal = :GlobalPos, 
-                            sortorder = :SortOrder, enabled = :Enabled 
-                        RETURNING * ) 
+                            name = :Name, description = :Desc, snapshotuuid = :SnapshotId, ""user"" = :User,
+                            originalname = :Original, simname = :SimName, posglobal = :GlobalPos,
+                            sortorder = :SortOrder, enabled = :Enabled
+                        RETURNING * )
                       INSERT INTO userpicks (pickuuid,creatoruuid,toppick,parceluuid,name,description,
-                            snapshotuuid,""user"",originalname,simname,posglobal,sortorder,enabled) 
+                            snapshotuuid,""user"",originalname,simname,posglobal,sortorder,enabled)
                       SELECT
                             :PickId,:CreatorId,:TopPick,:ParcelId,:Name,:Desc,:SnapshotId,:User,
-                            :Original,:SimName,:GlobalPos,:SortOrder,:Enabled 
+                            :Original,:SimName,:GlobalPos,:SortOrder,:Enabled
                       WHERE NOT EXISTS (
                         SELECT * FROM upsert )";
 
@@ -845,7 +845,7 @@ namespace OpenSim.Data.PGSQL
 
                     query = "SELECT \"profileImage\", \"profileFirstImage\" FROM \"userprofile\" WHERE \"useruuid\" = :Id";
 
-                    using (NpgsqlCommand cmd = new NpgsqlCommand(string.Format(query, "\"userpicks\""), dbcon))
+                    using (NpgsqlCommand cmd = new NpgsqlCommand(query, dbcon))
                     {
                         cmd.Parameters.Add(m_database.CreateParameter("Id", avatarId));
 

@@ -3,29 +3,30 @@
  * Original Author: Jeff Cesnik
  * All rights reserved.
  *
- * - Redistribution and use in source and binary forms, with or without 
+ * - Redistribution and use in source and binary forms, with or without
  *   modification, are permitted provided that the following conditions are met:
  *
  * - Redistributions of source code must retain the above copyright notice, this
  *   list of conditions and the following disclaimer.
- * - Neither the name of the openmetaverse.org nor the names 
+ * - Neither the name of the openmetaverse.org nor the names
  *   of its contributors may be used to endorse or promote products derived from
  *   this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" 
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE 
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE 
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE 
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR 
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF 
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN 
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) 
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
 using System;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -57,18 +58,9 @@ namespace OpenMetaverse
         /// <summary>UDP socket, used in either client or server mode</summary>
         private Socket m_udpSocket;
 
-        /// <summary>Flag to process packets asynchronously or synchronously</summary>
-        private bool m_asyncPacketHandling;
-
-        /// <summary>
-        /// Are we to use object pool(s) to reduce memory churn when receiving data?
-        /// </summary>
-        public bool UsePools { get; protected set; }
-
-        /// <summary>
-        /// Pool to use for handling data.  May be null if UsePools = false;
-        /// </summary>
-        protected OpenSim.Framework.Pool<UDPPacketBuffer> Pool { get; private set; }
+        public static Object m_udpBuffersPoolLock = new Object();
+        public static UDPPacketBuffer[] m_udpBuffersPool = new UDPPacketBuffer[1000];
+        public static int m_udpBuffersPoolPtr = -1;
 
         /// <summary>Returns true if the server is currently listening for inbound packets, otherwise false</summary>
         public bool IsRunningInbound { get; private set; }
@@ -107,13 +99,18 @@ namespace OpenMetaverse
         /// </summary>
         public float AverageReceiveTicksForLastSamplePeriod { get; private set; }
 
+        public int Port
+        {
+            get { return m_udpPort; }
+        }
+
         #region PacketDropDebugging
         /// <summary>
         /// For debugging purposes only... random number generator for dropping
         /// outbound packets.
         /// </summary>
         private Random m_dropRandomGenerator = new Random();
-        
+
         /// <summary>
         /// For debugging purposes only... parameters for a simplified
         /// model of packet loss with bursts, overall drop rate should
@@ -132,7 +129,7 @@ namespace OpenMetaverse
         /// </summary>
         private int m_dropLastTick = 0;
         private int m_dropResetTicks = 500;
-        
+
         /// <summary>
         /// Debugging code used to simulate dropped packets with bursts
         /// </summary>
@@ -179,11 +176,47 @@ namespace OpenMetaverse
             // m_dropRandomGenerator = new Random();
         }
 
+        ~OpenSimUDPBase()
+        {
+            if(m_udpSocket !=null)
+                try { m_udpSocket.Close(); } catch { }
+        }
+
+        public UDPPacketBuffer GetNewUDPBuffer(IPEndPoint remoteEndpoint)
+        {
+            lock (m_udpBuffersPoolLock)
+            {
+                if (m_udpBuffersPoolPtr >= 0)
+                {
+                    UDPPacketBuffer buf = m_udpBuffersPool[m_udpBuffersPoolPtr];
+                    m_udpBuffersPool[m_udpBuffersPoolPtr] = null;
+                    m_udpBuffersPoolPtr--;
+                    buf.RemoteEndPoint = remoteEndpoint;
+                    return buf;
+                }
+            }
+            return new UDPPacketBuffer(remoteEndpoint);
+        }
+
+        public void FreeUDPBuffer(UDPPacketBuffer buf)
+        {
+            lock (m_udpBuffersPoolLock)
+            {
+                if (m_udpBuffersPoolPtr < 999)
+                {
+                    buf.RemoteEndPoint = null;
+                    buf.DataLength = 0;
+                    m_udpBuffersPoolPtr++;
+                    m_udpBuffersPool[m_udpBuffersPoolPtr] = buf;
+                }
+            }
+        }
+
         /// <summary>
         /// Start inbound UDP packet handling.
         /// </summary>
-        /// <param name="recvBufferSize">The size of the receive buffer for 
-        /// the UDP socket. This value is passed up to the operating system 
+        /// <param name="recvBufferSize">The size of the receive buffer for
+        /// the UDP socket. This value is passed up to the operating system
         /// and used in the system networking stack. Use zero to leave this
         /// value as the default</param>
         /// <param name="asyncPacketHandling">Set this to true to start
@@ -195,10 +228,9 @@ namespace OpenMetaverse
         /// manner (not throwing an exception when the remote side resets the
         /// connection). This call is ignored on Mono where the flag is not
         /// necessary</remarks>
-        public virtual void StartInbound(int recvBufferSize, bool asyncPacketHandling)
-        {
-            m_asyncPacketHandling = asyncPacketHandling;
 
+        public virtual void StartInbound(int recvBufferSize)
+        {
             if (!IsRunningInbound)
             {
                 m_log.DebugFormat("[UDPBASE]: Starting inbound UDP loop");
@@ -212,10 +244,6 @@ namespace OpenMetaverse
                     SocketType.Dgram,
                     ProtocolType.Udp);
 
-                // OpenSim may need this but in AVN, this messes up automated
-                // sim restarts badly
-                //m_udpSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, false);
-
                 try
                 {
                     if (m_udpSocket.Ttl < 128)
@@ -227,14 +255,23 @@ namespace OpenMetaverse
                 {
                     m_log.Debug("[UDPBASE]: Failed to increase default TTL");
                 }
+
                 try
                 {
-                    // This udp socket flag is not supported under mono, 
+                    // This udp socket flag is not supported under mono,
                     // so we'll catch the exception and continue
-                    m_udpSocket.IOControl(SIO_UDP_CONNRESET, new byte[] { 0 }, null);
-                    m_log.Debug("[UDPBASE]: SIO_UDP_CONNRESET flag set");
+                    // Try does not protect some mono versions on mac
+                    if(Util.IsWindows())
+                    {
+                        m_udpSocket.IOControl(SIO_UDP_CONNRESET, new byte[] { 0 }, null);
+                        m_log.Debug("[UDPBASE]: SIO_UDP_CONNRESET flag set");
+                    }               
+                    else
+                    {
+                        m_log.Debug("[UDPBASE]: SIO_UDP_CONNRESET flag not supported on this platform, ignoring");
+                    }
                 }
-                catch (SocketException)
+                catch
                 {
                     m_log.Debug("[UDPBASE]: SIO_UDP_CONNRESET flag not supported on this platform, ignoring");
                 }
@@ -243,12 +280,21 @@ namespace OpenMetaverse
                 // we never want two regions to listen on the same port as they cannot demultiplex each other's messages,
                 // leading to a confusing bug.
                 // By default, Windows does not allow two sockets to bind to the same port.
-                m_udpSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, false);
+                //
+                // Unfortunately, this also causes a crashed sim to leave the socket in a state
+                // where it appears to be in use but is really just hung from the old process
+                // crashing rather than closing it. While this protects agains misconfiguration,
+                // allowing crashed sims to be started up again right away, rather than having to
+                // wait 2 minutes for the socket to clear is more valuable. Commented 12/13/2016
+                // m_udpSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, false);
 
                 if (recvBufferSize != 0)
                     m_udpSocket.ReceiveBufferSize = recvBufferSize;
 
                 m_udpSocket.Bind(ipep);
+
+                if (m_udpPort == 0)
+                    m_udpPort = ((IPEndPoint)m_udpSocket.LocalEndPoint).Port;
 
                 IsRunningInbound = true;
 
@@ -287,101 +333,55 @@ namespace OpenMetaverse
             IsRunningOutbound = false;
         }
 
-        public virtual bool EnablePools()
-        {
-            if (!UsePools)
-            {
-                Pool = new Pool<UDPPacketBuffer>(() => new UDPPacketBuffer(), 500);
-
-                UsePools = true;
-
-                return true;
-            }
-
-            return false;
-        }
-
-        public virtual bool DisablePools()
-        {
-            if (UsePools)
-            {
-                UsePools = false;
-
-                // We won't null out the pool to avoid a race condition with code that may be in the middle of using it.
-
-                return true;
-            }
-
-            return false;
-        }
-
         private void AsyncBeginReceive()
         {
-            UDPPacketBuffer buf;
+            if (!IsRunningInbound)
+                return;
 
-            // FIXME: Disabled for now as this causes issues with reused packet objects interfering with each other 
-            // on Windows with m_asyncPacketHandling = true, though this has not been seen on Linux.
-            // Possibly some unexpected issue with fetching UDP data concurrently with multiple threads.  Requires more investigation.
-//            if (UsePools)
-//                buf = Pool.GetObject();
-//            else
-                buf = new UDPPacketBuffer();
-
-            if (IsRunningInbound)
+            UDPPacketBuffer buf = GetNewUDPBuffer(new IPEndPoint(IPAddress.Any, 0)); // we need a fresh one here, for now at least
+            try
             {
-                try
+                // kick off an async read
+                m_udpSocket.BeginReceiveFrom(
+                    buf.Data,
+                    0,
+                    buf.Data.Length,
+                    SocketFlags.None,
+                    ref buf.RemoteEndPoint,
+                    AsyncEndReceive,
+                    buf);
+            }
+            catch (SocketException e)
+            {
+                if (e.SocketErrorCode == SocketError.ConnectionReset)
                 {
-                    // kick off an async read
-                    m_udpSocket.BeginReceiveFrom(
-                        //wrappedBuffer.Instance.Data,
-                        buf.Data,
-                        0,
-                        UDPPacketBuffer.BUFFER_SIZE,
-                        SocketFlags.None,
-                        ref buf.RemoteEndPoint,
-                        AsyncEndReceive,
-                        //wrappedBuffer);
-                        buf);
-                }
-                catch (SocketException e)
-                {
-                    if (e.SocketErrorCode == SocketError.ConnectionReset)
+                    m_log.Warn("[UDPBASE]: SIO_UDP_CONNRESET was ignored, attempting to salvage the UDP listener on port " + m_udpPort);
+                    bool salvaged = false;
+                    while (!salvaged)
                     {
-                        m_log.Warn("[UDPBASE]: SIO_UDP_CONNRESET was ignored, attempting to salvage the UDP listener on port " + m_udpPort);
-                        bool salvaged = false;
-                        while (!salvaged)
+                        try
                         {
-                            try
-                            {
-                                m_udpSocket.BeginReceiveFrom(
-                                    //wrappedBuffer.Instance.Data,
-                                    buf.Data,
-                                    0,
-                                    UDPPacketBuffer.BUFFER_SIZE,
-                                    SocketFlags.None,
-                                    ref buf.RemoteEndPoint,
-                                    AsyncEndReceive,
-                                    //wrappedBuffer);
-                                    buf);
-                                salvaged = true;
-                            }
-                            catch (SocketException) { }
-                            catch (ObjectDisposedException) { return; }
+                            m_udpSocket.BeginReceiveFrom(
+                                buf.Data,
+                                0,
+                                buf.Data.Length,
+                                SocketFlags.None,
+                                ref buf.RemoteEndPoint,
+                                AsyncEndReceive,
+                                buf);
+                            salvaged = true;
                         }
-
-                        m_log.Warn("[UDPBASE]: Salvaged the UDP listener on port " + m_udpPort);
+                        catch (SocketException) { }
+                        catch (ObjectDisposedException) { return; }
                     }
+
+                    m_log.Warn("[UDPBASE]: Salvaged the UDP listener on port " + m_udpPort);
                 }
-                catch (ObjectDisposedException e) 
-                { 
-                    m_log.Error(
-                        string.Format("[UDPBASE]: Error processing UDP begin receive {0}.  Exception  ", UdpReceives), e);
-                }
-                catch (Exception e)
-                {
-                    m_log.Error(
-                        string.Format("[UDPBASE]: Error processing UDP begin receive {0}.  Exception  ", UdpReceives), e);
-                }
+            }
+            catch (Exception e)
+            {
+                m_log.Error(
+                    string.Format("[UDPBASE]: Error processing UDP begin receive {0}.  Exception  ", UdpReceives), e);
             }
         }
 
@@ -392,12 +392,7 @@ namespace OpenMetaverse
             if (IsRunningInbound)
             {
                 UdpReceives++;
-
-                // Asynchronous mode will start another receive before the
-                // callback for this packet is even fired. Very parallel :-)
-                if (m_asyncPacketHandling)
-                    AsyncBeginReceive();
-
+ 
                 try
                 {
                     // get the buffer that was created in AsyncBeginReceive
@@ -419,7 +414,7 @@ namespace OpenMetaverse
                     // since this should be rare and  won't cause a runtime problem.
                     if (m_currentReceiveTimeSamples >= s_receiveTimeSamples)
                     {
-                        AverageReceiveTicksForLastSamplePeriod 
+                        AverageReceiveTicksForLastSamplePeriod
                             = (float)m_receiveTicksInCurrentSamplePeriod / s_receiveTimeSamples;
 
                         m_receiveTicksInCurrentSamplePeriod = 0;
@@ -431,18 +426,13 @@ namespace OpenMetaverse
                         m_currentReceiveTimeSamples++;
                     }
                 }
-                catch (SocketException se) 
-                { 
+                catch (SocketException se)
+                {
                     m_log.Error(
                         string.Format(
-                            "[UDPBASE]: Error processing UDP end receive {0}, socket error code {1}.  Exception  ", 
-                            UdpReceives, se.ErrorCode), 
+                            "[UDPBASE]: Error processing UDP end receive {0}, socket error code {1}.  Exception  ",
+                            UdpReceives, se.ErrorCode),
                         se);
-                }
-                catch (ObjectDisposedException e) 
-                { 
-                    m_log.Error(
-                        string.Format("[UDPBASE]: Error processing UDP end receive {0}.  Exception  ", UdpReceives), e);
                 }
                 catch (Exception e)
                 {
@@ -451,17 +441,12 @@ namespace OpenMetaverse
                 }
                 finally
                 {
-//                    if (UsePools)
-//                        Pool.ReturnObject(buffer);
-
-                    // Synchronous mode waits until the packet callback completes
-                    // before starting the receive to fetch another packet
-                    if (!m_asyncPacketHandling)
-                        AsyncBeginReceive();
+                    AsyncBeginReceive();
                 }
             }
         }
 
+/* not in use
         public void AsyncBeginSend(UDPPacketBuffer buf)
         {
 //            if (IsRunningOutbound)
@@ -471,7 +456,7 @@ namespace OpenMetaverse
                 // packets when testing throttles & retransmission code
                 // if (DropOutgoingPacket())
                 //     return;
-            
+
                 try
                 {
                     m_udpSocket.BeginSendTo(
@@ -485,7 +470,7 @@ namespace OpenMetaverse
                 }
                 catch (SocketException) { }
                 catch (ObjectDisposedException) { }
-//            }
+ //           }
         }
 
         void AsyncEndSend(IAsyncResult result)
@@ -498,6 +483,28 @@ namespace OpenMetaverse
                 UdpSends++;
             }
             catch (SocketException) { }
+            catch (ObjectDisposedException) { }
+        }
+*/
+        public void SyncSend(UDPPacketBuffer buf)
+        {
+            if(buf.RemoteEndPoint == null)
+                return; // already expired
+            try
+            {
+                m_udpSocket.SendTo(
+                    buf.Data,
+                    0,
+                    buf.DataLength,
+                    SocketFlags.None,
+                    buf.RemoteEndPoint
+                    );
+                 UdpSends++;
+            }
+            catch (SocketException e)
+            {
+                m_log.WarnFormat("[UDPBASE]: sync send SocketException {0} {1}", buf.RemoteEndPoint, e.Message);
+            }
             catch (ObjectDisposedException) { }
         }
     }

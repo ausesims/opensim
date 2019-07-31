@@ -88,7 +88,7 @@ namespace OpenSim.Framework.Monitoring
             IConfig cfg = source.Configs["Monitoring"];
 
             if (cfg != null)
-                Enabled = cfg.GetBoolean("ServerStatsEnabled", true);
+                Enabled = cfg.GetBoolean("ServerStatsEnabled", false);
 
             if (Enabled)
             {
@@ -98,12 +98,18 @@ namespace OpenSim.Framework.Monitoring
 
         public void Start()
         {
+            if(!Enabled)
+                return;
+
             if (RegisteredStats.Count == 0)
                 RegisterServerStats();
         }
 
         public void Close()
         {
+            if(!Enabled)
+                return;
+
             if (RegisteredStats.Count > 0)
             {
                 foreach (Stat stat in RegisteredStats.Values)
@@ -167,18 +173,18 @@ namespace OpenSim.Framework.Monitoring
             }
 
             MakeStat("BuiltinThreadpoolWorkerThreadsAvailable", null, "threads", ContainerThreadpool,
-                s => 
-                { 
-                    int workerThreads, iocpThreads; 
-                    ThreadPool.GetAvailableThreads(out workerThreads, out iocpThreads); 
+                s =>
+                {
+                    int workerThreads, iocpThreads;
+                    ThreadPool.GetAvailableThreads(out workerThreads, out iocpThreads);
                     s.Value = workerThreads;
                 });
 
             MakeStat("BuiltinThreadpoolIOCPThreadsAvailable", null, "threads", ContainerThreadpool,
-                s => 
-                { 
-                    int workerThreads, iocpThreads; 
-                    ThreadPool.GetAvailableThreads(out workerThreads, out iocpThreads); 
+                s =>
+                {
+                    int workerThreads, iocpThreads;
+                    ThreadPool.GetAvailableThreads(out workerThreads, out iocpThreads);
                     s.Value = iocpThreads;
                 });
 
@@ -193,10 +199,10 @@ namespace OpenSim.Framework.Monitoring
             }
 
             MakeStat(
-                "HTTPRequestsMade", 
-                "Number of outbound HTTP requests made", 
-                "requests", 
-                ContainerNetwork, 
+                "HTTPRequestsMade",
+                "Number of outbound HTTP requests made",
+                "requests",
+                ContainerNetwork,
                 s => s.Value = WebUtil.RequestNumber,
                 MeasuresOfInterest.AverageChangeOverTime);
 
@@ -294,7 +300,7 @@ namespace OpenSim.Framework.Monitoring
                                 });
         }
 
-        // Notes on performance counters: 
+        // Notes on performance counters:
         //  "How To Read Performance Counters": http://blogs.msdn.com/b/bclteam/archive/2006/06/02/618156.aspx
         //  "How to get the CPU Usage in C#": http://stackoverflow.com/questions/278071/how-to-get-the-cpu-usage-in-c
         //  "Mono Performance Counters": http://www.mono-project.com/Mono_Performance_Counters
